@@ -50,7 +50,7 @@ public:
         assert(count > 0);
         for (uint32_t i = 0; i < count; i++) {
             auto& property = properties[i];
-            if (VK_QUEUE_GRAPHICS_BIT & property.queueFlags) {
+            if (VK_QUEUE_COMPUTE_BIT & property.queueFlags) {
                 m_queue_family = i;
                 return;
             }
@@ -259,6 +259,9 @@ public:
             info.allocationSize = requirements.size;
             info.memoryTypeIndex = memoryType;
             auto res = vkAllocateMemory(m_device, &info, NULL, &device_memory);
+	    if (res != VK_SUCCESS) {
+	      throw std::runtime_error{"failed to allocate device memory"};
+	    }
         }
 
         vkBindBufferMemory(m_device, buffer, device_memory, 0);
@@ -270,6 +273,9 @@ public:
     void* map_device_memory(VkDeviceMemory device_memory, VkDeviceSize offset, VkDeviceSize size) {
         void* ptr{};
         auto res = vkMapMemory(m_device, device_memory, offset, size, 0, &ptr);
+	if (res != VK_SUCCESS) {
+	  throw std::runtime_error{"failed to map device memory"};
+	}
         return ptr;
     }
     void unmap_device_memory(VkDeviceMemory device_memory) {
@@ -373,6 +379,9 @@ public:
             info.commandBufferInfoCount = 1;
             info.pCommandBufferInfos = &command_buffer_submit_info;
             auto res = vkQueueSubmit2(m_queue, 1, &submit_info, m_fence);
+	    if (res != VK_SUCCESS) {
+	      throw std::runtime_error{"failed to submit queue"};
+	    }
         }
 
         {
@@ -387,7 +396,10 @@ public:
             memory_range.memory = m_storage_memory;
             memory_range.offset = 0;
             memory_range.size = 128;
-            auto res = vkInvalidateMappedMemoryRanges(m_device, 1, &memory_range); 
+            auto res = vkInvalidateMappedMemoryRanges(m_device, 1, &memory_range);
+	    if (res != VK_SUCCESS) {
+	      throw std::runtime_error{"failed to invalidate mapped memory"};
+	    }
         }
         {
             uint32_t* data = reinterpret_cast<uint32_t*>(m_storage_memory_ptr);
