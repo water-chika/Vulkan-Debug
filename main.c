@@ -2,6 +2,9 @@
 #include <stdio.h>
 #include <vulkan/vulkan.h>
 #include <stdint.h>
+#include <inttypes.h>
+#include <stdbool.h>
+#include <stdlib.h>
 
 struct App {
   VkInstance instance;
@@ -114,23 +117,23 @@ void destroy_device(App* app) {
 VkShaderModule create_shader_module(App* app, const char* file_path) {
   FILE* spirv_file = fopen(file_path, "rb");
   uint32_t buffer_size=256, size=0;
-  uint32_t* spirv_codes = (uint32_t*)malloc(buffer_size);
+  uint32_t* spirv_codes = (uint32_t*)malloc(4*buffer_size);
   assert(spirv_codes != NULL);
   while (!feof(spirv_file)) {
-    if (1 != fread(spirv_codes+size, 1, 4, spirv_file)) {
+    if (1 != fread(spirv_codes+size, 4, 1, spirv_file)) {
       break;
     }
-    size+=4;
+    size++;
     assert(size <= buffer_size);
     if (size == buffer_size) {
       buffer_size *= 2;
-      spirv_codes = (uint32_t*)realloc(spirv_codes, buffer_size);
+      spirv_codes = (uint32_t*)realloc(spirv_codes, 4*buffer_size);
       assert(spirv_codes != NULL);
     }
   }
   VkShaderModuleCreateInfo create_info = {
     .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-    .codeSize = size,
+    .codeSize = size*4,
     .pCode = spirv_codes
   };
   VkShaderModule shader_module = {};
@@ -190,7 +193,7 @@ void create_pipeline(App* app) {
     .flags = 0,
     .stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
     .stage.stage = VK_SHADER_STAGE_COMPUTE_BIT,
-    .stage.module = create_shader_module("comp.spv"),
+    .stage.module = create_shader_module(app, "comp.spv"),
     .stage.pName = "main",
     .layout = app->pipeline_layout
   };
@@ -198,7 +201,7 @@ void create_pipeline(App* app) {
 					  &create_info, NULL,
 					  &app->pipeline);
   assert(res == VK_SUCCESS);
-  destroy_shader_module(create_info.stage.module);
+  destroy_shader_module(app, create_info.stage.module);
 }
 
 void destroy_pipeline(App* app) {
@@ -227,7 +230,7 @@ void allocate_command_buffer(App* app) {
     .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
     .commandBufferCount = 1,
   };
-  VkResult ret = vkAllocateCommandBuffers(app->device, &info,
+  VkResult res = vkAllocateCommandBuffers(app->device, &info,
 					  &app->command_buffer);
   assert(res == VK_SUCCESS);
 }
@@ -240,7 +243,7 @@ void record_command_buffer(App* app) {
   VkResult res = vkBeginCommandBuffer(app->command_buffer, &begin_info);
   assert(res == VK_SUCCESS);
   vkCmdBindPipeline(app->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-		    &app->pipeline);
+		    app->pipeline);
   vkCmdBindDescriptorSets(app->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
 			  app->pipeline_layout, 0, 1, &app->descriptor_set,
 			  0, NULL);
@@ -250,7 +253,7 @@ void record_command_buffer(App* app) {
   assert(res == VK_SUCCESS);
 }
 
-VkBuffer create_buffer(App* app, VkdeviceSize size, VkBufferUsageFlags usage) {
+VkBuffer create_buffer(App* app, VkDeviceSize size, VkBufferUsageFlags usage) {
   VkBufferCreateInfo create_info = {
     .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
     .size = size,
@@ -269,7 +272,7 @@ void destroy_buffer(App* app, VkBuffer buffer) {
   vkDestroyBuffer(app->device, buffer, NULL);
 }
 
-uint32_t findProperties(App* app, uint32_t memorytypeBitsRequirements, VkMemoryPropertyFlags requiredProperty) {
+uint32_t findProperties(App* app, uint32_t memoryTypeBitsRequirements, VkMemoryPropertyFlags requiredProperty) {
   const uint32_t memoryCount = app->memory_properties.memoryTypeCount;
   for (uint32_t memoryIndex = 0; memoryIndex < memoryCount; memoryIndex++) {
     const uint32_t memoryTypeBits = (1 << memoryIndex);
@@ -290,7 +293,7 @@ VkDeviceMemory alloc_device_memory(App* app, VkBuffer buffer,
 				   VkMemoryPropertyFlags property) {
   VkMemoryRequirements requirements = {};
   vkGetBufferMemoryRequirements(app->device, buffer, &requirements);
-  uint32_t memoryType = findProperties(requirements.memoryTypeBits, property);
+  uint32_t memoryType = findProperties(app, requirements.memoryTypeBits, property);
 
   VkMemoryAllocateInfo allocate_info = {
     .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
@@ -375,7 +378,7 @@ void allocate_descriptor_set(App* app) {
 }
 
 void update_descriptor_set(App* app) {
-  VkdescriptorBufferInfo buffer_info = {
+  VkDescriptorBufferInfo buffer_info = {
     .buffer = app->storage_buffer,
     .offset = 0,
     .range = 128,
@@ -433,7 +436,7 @@ void draw(App* app) {
   VkSubmitInfo2 submit_info = {
     .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
     .commandBufferInfoCount = 1,
-    .pCommandbufferInfos = &command_buffer_submit_info,
+    .pCommandBufferInfos = &command_buffer_submit_info,
   };
   VkResult res = vkQueueSubmit2(app->queue, 1, &submit_info, app->fence);
   assert(res == VK_SUCCESS);
@@ -448,8 +451,8 @@ void draw(App* app) {
     .offset = 0,
     .size = 128,
   };
-  VkResult res = vkInvalidateMappedMemoryRanges(app->device, 1,
-						app->memory_range);
+  res = vkInvalidateMappedMemoryRanges(app->device, 1,
+						&memory_range);
   assert(res == VK_SUCCESS);
 
   uint32_t* data = (uint32_t*)app->storage_memory_ptr;
@@ -459,7 +462,7 @@ void draw(App* app) {
 
 void run(App* app) {
   for (int i = 0; i < 8; i++) {
-    draw();
+    draw(app);
   }
 }
 
