@@ -116,6 +116,7 @@ void destroy_device(App* app) {
 
 VkShaderModule create_shader_module(App* app, const char* file_path) {
   FILE* spirv_file = fopen(file_path, "rb");
+  assert(spirv_file != NULL);
   uint32_t buffer_size=256, size=0;
   uint32_t* spirv_codes = (uint32_t*)malloc(4*buffer_size);
   assert(spirv_codes != NULL);

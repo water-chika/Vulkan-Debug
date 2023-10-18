@@ -93,6 +93,9 @@ public:
     VkShaderModule create_shader_module(const std::string& file_path) {
         std::vector<uint32_t> spirv_codes;
         std::ifstream spirv_file{file_path};
+	if (false == spirv_file.is_open()) {
+	  throw std::runtime_error{"can not open shader file"};
+	}
         while (!spirv_file.eof()) {
             uint32_t code;
             spirv_file.read(reinterpret_cast<char*>(&code), sizeof(code));
@@ -408,7 +411,7 @@ public:
         
     }
     void run() {
-        while (1)
+      for (int i = 0; i < 8; i++)
           draw();
     }
 private:
