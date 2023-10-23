@@ -90,8 +90,20 @@ void create_device(App* app) {
     .pQueuePriorities = &priority,
   };
 
+  VkPhysicalDeviceVulkan13Features vulkan_1_3_features = {
+    .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+    .synchronization2 = VK_TRUE,
+    .maintenance4 = VK_TRUE,
+  };
+
+  VkPhysicalDeviceFeatures2 features2 = {
+    .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+    .pNext = &vulkan_1_3_features,
+  };
+
   VkDeviceCreateInfo create_info = {
     .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+    .pNext = &features2,
     .queueCreateInfoCount = 1,
     .pQueueCreateInfos = &queue_create_info,
   };
@@ -429,6 +441,7 @@ void deinit(App* app) {
 }
 
 void draw(App* app) {
+  assert(VK_SUCCESS == vkResetFences(app->device, 1, &app->fence));
   VkCommandBufferSubmitInfo command_buffer_submit_info = {
     .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
     .commandBuffer = app->command_buffer,

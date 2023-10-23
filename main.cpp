@@ -65,8 +65,18 @@ public:
         float priority = 1.0;
         queue_create_info.pQueuePriorities = &priority;
 
+	VkPhysicalDeviceVulkan13Features vulkan_1_3_features{};
+	vulkan_1_3_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+	vulkan_1_3_features.synchronization2 = VK_TRUE;
+	vulkan_1_3_features.maintenance4 = VK_TRUE;
+
+	VkPhysicalDeviceFeatures2 features2{};
+	features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+	features2.pNext = &vulkan_1_3_features;
+
         VkDeviceCreateInfo create_info{};
         create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+	create_info.pNext = &features2;
         create_info.queueCreateInfoCount = 1;
         create_info.pQueueCreateInfos = &queue_create_info;
         auto res = vkCreateDevice(m_physical_device, &create_info, NULL, &m_device);
@@ -369,6 +379,9 @@ public:
         destroy_instance();
     }
     void draw() {
+        if (VK_SUCCESS != vkResetFences(m_device, 1, &m_fence)) {
+	    throw std::runtime_error{"failed to reset fence"};
+	}
         VkCommandBufferSubmitInfo command_buffer_submit_info{};
         {
             auto& info = command_buffer_submit_info;
