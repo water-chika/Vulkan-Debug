@@ -4,6 +4,8 @@
 
 #include "spirv_helper.hpp"
 
+#include <concepts>
+
 namespace vulkan_helper {
 	class instance {
     public:
@@ -101,16 +103,17 @@ namespace vulkan_helper {
         void set_queue_family_index(uint32_t index) {
             m_queue_family_index = index;
         }
-        uint32_t get_queue_family_index() {
+        uint32_t get_queue_family_index() const {
             return m_queue_family_index;
         }
     private:
         VkDeviceCreateInfo m_create_info;
         int m_queue_family_index;
     };
-    class physical_device {
+    class physical_device : public instance{
     public:
-        physical_device(VkPhysicalDevice physical_device) : m_physical_device{ physical_device } {}
+        physical_device(std::invocable<instance&> auto&& select_physical_device) : m_physical_device{ select_physical_device(*this)} {}
+
         uint32_t find_queue_family_if(std::predicate<VkQueueFamilyProperties> auto&& fun) {
             constexpr uint32_t COUNT = 8;
             std::array<VkQueueFamilyProperties, COUNT> properties{};
@@ -130,7 +133,10 @@ namespace vulkan_helper {
             vkGetPhysicalDeviceMemoryProperties(m_physical_device, &properties);
             return properties;
         }
-        auto create_device(device_create_info& info) {
+        auto get_memory_properties() {
+            return get_physical_device_memory_properties();
+        }
+        auto create_device(const device_create_info& info) {
             VkDeviceQueueCreateInfo queue_create_info{};
             queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
             queue_create_info.queueFamilyIndex = info.get_queue_family_index();
@@ -165,26 +171,29 @@ namespace vulkan_helper {
             info.set_queue_family_index(0);
             return create_device(info);
         }
+        VkPhysicalDevice operator()(VkPhysicalDevice) {
+            return m_physical_device;
+        }
     private:
         VkPhysicalDevice m_physical_device;
     };
 
-    class device {
+    template<std::derived_from<physical_device> PD = physical_device>
+    class device : public PD {
     public:
-        device() : device{ nullptr } {}
-        device(VkDevice device) : m_device{ device } {
-        }
+        device(std::invocable<PD&> auto&& gen_info)
+            :
+            m_device{ PD::create_device(gen_info(*this)) }
+        {}
+        device() = delete;
         device(const device& device) = delete;
-        device(device&& device) : m_device{ device.m_device } { device.m_device = nullptr; }
-        ~device() {
-            if (m_device != nullptr) vkDestroyDevice(m_device, nullptr);
+        device(device&& device) = delete;
+        ~device() noexcept {
+            vkDestroyDevice(m_device, nullptr);
         }
         device& operator=(const device& device) = delete;
-        device& operator=(device&& device) {
-            m_device = device.m_device;
-            device.m_device = nullptr;
-            return *this;
-        }
+        device& operator=(device&& device) = delete;
+
         VkQueue get_device_queue(uint32_t queue_family_index, uint32_t queue_index) {
             VkQueue queue;
             vkGetDeviceQueue(m_device, queue_family_index, queue_index, &queue);
@@ -274,7 +283,6 @@ namespace vulkan_helper {
 
             VkPipeline pipeline;
             auto res = vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1, &create_info, NULL, &pipeline);
-            destroy_shader_module(create_info.stage.module);
             if (res != VK_SUCCESS) {
                 throw std::runtime_error{ "failed to create compute pipeline" };
             }
@@ -458,6 +466,116 @@ namespace vulkan_helper {
 
     private:
         VkDevice m_device;
+    };
+
+    template<class D>
+    class command_pool : public D{
+    public:
+        command_pool(std::invocable<D&> auto&& gen_command_pool) : m_command_pool { gen_command_pool(*this) }
+        {}
+        command_pool() = delete;
+        command_pool(const command_pool&) = delete;
+        command_pool(command_pool&&) = delete;
+        ~command_pool() {
+            D::destroy_command_pool(m_command_pool);
+        }
+        command_pool& operator=(const command_pool&) = delete;
+        command_pool& operator=(command_pool&&) = delete;
+
+        VkCommandPool get_command_pool() {
+            return m_command_pool;
+        }
+
+    private:
+        VkCommandPool m_command_pool;
+    };
+
+    template<class D>
+    class fence : public D {
+    public:
+        fence() : m_fence{D::create_fence()}
+        {}
+        ~fence() {
+            D::destroy_fence(m_fence);
+        }
+        VkFence get_fence() {
+            return m_fence;
+        }
+
+        void reset() {
+            D::reset_fence(m_fence);
+        }
+        void wait_for() {
+            D::wait_for_fence(m_fence);
+        }
+    private:
+        VkFence m_fence;
+    };
+
+    template<class D>
+    class descriptor_set_layout : public D {
+    public:
+        descriptor_set_layout() : m_descriptor_set_layout{
+            D::create_descriptor_set_layout()
+        }
+        {}
+        ~descriptor_set_layout() {
+            D::destroy_descriptor_set_layout(m_descriptor_set_layout);
+        }
+
+        const auto get_descriptor_set_layout() const {
+            return m_descriptor_set_layout;
+        }
+    private:
+        VkDescriptorSetLayout m_descriptor_set_layout;
+    };
+
+    template<class D>
+    class descriptor_pool : public D {
+    public:
+        descriptor_pool() : m_descriptor_pool{D::create_descriptor_pool()}
+        {}
+        ~descriptor_pool() {
+            D::destroy_descriptor_pool(m_descriptor_pool);
+        }
+        auto allocate_descriptor_set(VkDescriptorSetLayout layout) {
+            return D::allocate_descriptor_set(m_descriptor_pool, layout);
+        }
+
+        auto get_descriptor_pool() {
+            return m_descriptor_pool;
+        }
+    private:
+        VkDescriptorPool m_descriptor_pool;
+    };
+
+    template<class D>
+    class descriptor_set : public D {
+    public:
+    public:
+        descriptor_set() : m_descriptor_set{ D::allocate_descriptor_set(D::get_descriptor_set_layout())}
+        {}
+
+        auto get_descriptor_set() {
+            return m_descriptor_set;
+        }
+    private:
+        VkDescriptorSet m_descriptor_set;
+    };
+
+    template<class D>
+    class pipeline_layout : public D {
+    public:
+        pipeline_layout() : m_pipeline_layout{D::create_pipeline_layout(D::get_descriptor_set_layout())}
+        {}
+        ~pipeline_layout() {
+            D::destroy_pipeline_layout(m_pipeline_layout);
+        }
+        auto get_pipeline_layout() const{
+            return m_pipeline_layout;
+        }
+    private:
+        VkPipelineLayout m_pipeline_layout;
     };
 
 };

@@ -8,30 +8,95 @@
 #include "vulkan_helper.hpp"
 #include "spirv_helper.hpp"
 
-class App {
+class first_physical_device : public vulkan_helper::physical_device {
 public:
-    App() : m_instance{}, m_physical_device{ m_instance.get_first_physical_device() } {}
+    first_physical_device() : physical_device{
+        [](vulkan_helper::instance& instance) {
+            return instance.get_first_physical_device();
+        }
+    }
+    {}
+};
 
-    void select_physical_device() {
-        m_memory_properties = m_physical_device.get_physical_device_memory_properties();
+class compute_queue_physical_device : public first_physical_device {
+public:
+    compute_queue_physical_device() : m_compute_queue_family_index {
+        physical_device::find_queue_family_if(
+            [](VkQueueFamilyProperties properties) {
+                return VK_QUEUE_COMPUTE_BIT & properties.queueFlags;
+            }
+        )
     }
-    void select_queue_family() {
-        m_queue_family = m_physical_device.find_queue_family_if([](VkQueueFamilyProperties properties) {
-            return VK_QUEUE_COMPUTE_BIT & properties.queueFlags;
-            });
+    {}
+            uint32_t get_compute_queue_family_index() {
+                return m_compute_queue_family_index;
     }
-    void create_device() {
+private:
+    uint32_t m_compute_queue_family_index;
+};
+
+class compute_queue_device : public vulkan_helper::device<compute_queue_physical_device> {
+public:
+    compute_queue_device() :
+        device{ [](compute_queue_physical_device& physical_device) {
         vulkan_helper::device_create_info info{};
-        info.set_queue_family_index(m_queue_family);
-        m_device = m_physical_device.create_device(info);
-
-        m_queue = m_device.get_device_queue(m_queue_family, 0);
-
-        m_fence = m_device.create_fence();
+        info.set_queue_family_index(physical_device.get_compute_queue_family_index());
+        return info;
+            }
     }
-    void destroy_device() {
-        m_device.destroy_fence(m_fence);
+    {}
+};
+
+class compute_queue : public compute_queue_device {
+public:
+    compute_queue() :
+        m_queue{
+        device::get_device_queue(compute_queue_device::get_compute_queue_family_index(), 0)
     }
+    {}
+    VkQueue get_queue() {
+        return m_queue;
+    }
+private:
+    VkQueue m_queue;
+};
+
+template<class PD>
+class physical_device_cached_memory_properties : public PD {
+public:
+    physical_device_cached_memory_properties() : 
+        m_memory_properties{
+        PD::get_memory_properties()
+    }
+    {}
+    const auto& get_memory_properties() const {
+        return m_memory_properties;
+    }
+private:
+    VkPhysicalDeviceMemoryProperties m_memory_properties;
+};
+
+using app_parent = 
+    vulkan_helper::command_pool<
+    vulkan_helper::fence<
+    physical_device_cached_memory_properties<
+    vulkan_helper::pipeline_layout<
+    vulkan_helper::descriptor_set<
+    vulkan_helper::descriptor_pool<
+    vulkan_helper::descriptor_set_layout<
+    compute_queue
+    >>>>>>>;
+
+
+class App : public app_parent{
+public:
+    using D = compute_queue_device;
+    App() : 
+        app_parent{
+        [](D& device) {
+            return device.create_command_pool(device.get_compute_queue_family_index());
+        }}
+    {}
 
     void record_command_buffer() {
         {
@@ -43,8 +108,9 @@ public:
             }
         }
         vkCmdBindPipeline(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline);
+        auto descriptor_set = app_parent::get_descriptor_set();
         vkCmdBindDescriptorSets(m_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, 
-                m_pipeline_layout, 0, 1, &m_descriptor_set, 0, NULL);
+                app_parent::get_pipeline_layout(), 0, 1, &descriptor_set, 0, NULL);
         vkCmdDispatch(m_command_buffer, 1, 1, 1);
         {
             auto res = vkEndCommandBuffer(m_command_buffer);
@@ -55,12 +121,12 @@ public:
     }
 
     uint32_t findProperties(uint32_t memoryTypeBitsRequirements, VkMemoryPropertyFlags requiredProperty) {
-        const uint32_t memoryCount = m_memory_properties.memoryTypeCount;
+        const uint32_t memoryCount = app_parent::get_memory_properties().memoryTypeCount;
         for (uint32_t memoryIndex = 0; memoryIndex < memoryCount; memoryIndex++) {
             const uint32_t memoryTypeBits = (1 << memoryIndex);
             const bool isRequiredMemoryType = memoryTypeBitsRequirements & memoryTypeBits;
             const VkMemoryPropertyFlags properties = 
-                m_memory_properties.memoryTypes[memoryIndex].propertyFlags;
+                app_parent::get_memory_properties().memoryTypes[memoryIndex].propertyFlags;
             const bool hasRequiredProperties =
                 (properties & requiredProperty) == requiredProperty;
             if (isRequiredMemoryType && hasRequiredProperties)
@@ -69,51 +135,36 @@ public:
         throw std::runtime_error{"failed find memory property"};
     }
 
-
-
-
     void create_storage_buffer() {
-        m_storage_buffer = m_device.create_buffer(m_queue_family, 128, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-        m_storage_memory = m_device.alloc_device_memory(m_memory_properties, m_storage_buffer, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        m_storage_memory_ptr = m_device.map_device_memory(m_storage_memory, 0, 128);
+        m_storage_buffer = D::create_buffer(D::get_compute_queue_family_index(), 128, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        m_storage_memory = D::alloc_device_memory(app_parent::get_memory_properties(), m_storage_buffer, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        m_storage_memory_ptr = D::map_device_memory(m_storage_memory, 0, 128);
     }
     void destroy_storage_buffer() {
-        m_device.destroy_buffer(m_storage_buffer);
-        m_device.unmap_device_memory(m_storage_memory);
-        m_device.free_device_memory(m_storage_memory);
+        D::destroy_buffer(m_storage_buffer);
+        D::unmap_device_memory(m_storage_memory);
+        D::free_device_memory(m_storage_memory);
     }
 
     void init() {
-        select_physical_device();
-        select_queue_family();
-        create_device();
-        m_descriptor_set_layout = m_device.create_descriptor_set_layout();
-        m_pipeline_layout = m_device.create_pipeline_layout(m_descriptor_set_layout);
-        
-        auto shader_module = m_device.create_shader_module(spirv_file{"comp.spv"});
-        m_pipeline = m_device.create_pipeline(shader_module, m_pipeline_layout);
-        m_descriptor_pool = m_device.create_descriptor_pool();
-        m_descriptor_set = m_device.allocate_descriptor_set(m_descriptor_pool, m_descriptor_set_layout);
+        {
+            auto shader_module = D::create_shader_module(spirv_file{ "comp.spv" });
+            m_pipeline = D::create_pipeline(shader_module, app_parent::get_pipeline_layout());
+            D::destroy_shader_module(shader_module);
+        }
         create_storage_buffer();
-        m_device.update_descriptor_set(m_storage_buffer, m_descriptor_set);
+        D::update_descriptor_set(m_storage_buffer, app_parent::get_descriptor_set());
 
-        m_command_pool = m_device.create_command_pool(m_queue_family);
-        m_command_buffer = m_device.allocate_command_buffer(m_command_pool);
+        m_command_buffer = D::allocate_command_buffer(app_parent::get_command_pool());
         record_command_buffer();
     }
     void deinit() {
-        m_device.destroy_command_pool(m_command_pool);
-        
         destroy_storage_buffer();
-        m_device.destroy_descriptor_pool(m_descriptor_pool);
 
-        m_device.destroy_pipeline(m_pipeline);
-        m_device.destroy_pipeline_layout(m_pipeline_layout);
-        m_device.destroy_descriptor_set_layout(m_descriptor_set_layout);
-        destroy_device();
+        D::destroy_pipeline(m_pipeline);
     }
     void draw() {
-        m_device.reset_fence(m_fence);
+        fence::reset();
 
         VkCommandBufferSubmitInfo command_buffer_submit_info{};
         {
@@ -127,13 +178,13 @@ public:
             info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
             info.commandBufferInfoCount = 1;
             info.pCommandBufferInfos = &command_buffer_submit_info;
-            auto res = vkQueueSubmit2(m_queue, 1, &submit_info, m_fence);
+            auto res = vkQueueSubmit2(compute_queue::get_queue(), 1, &submit_info, fence::get_fence());
 	    if (res != VK_SUCCESS) {
 	      throw std::runtime_error{"failed to submit queue"};
 	    }
         }
 
-        m_device.wait_for_fence(m_fence);
+        fence::wait_for();
 
         {
             uint32_t* data = reinterpret_cast<uint32_t*>(m_storage_memory_ptr);
@@ -146,27 +197,13 @@ public:
           draw();
     }
 private:
-    vulkan_helper::instance m_instance;
-    vulkan_helper::physical_device m_physical_device;
-    uint32_t m_queue_family;
-    vulkan_helper::device m_device;
-    VkQueue m_queue;
-    VkFence m_fence;
-    VkPhysicalDeviceMemoryProperties m_memory_properties;
-
     VkPipeline m_pipeline;
-    VkPipelineLayout m_pipeline_layout;
-    VkDescriptorSetLayout m_descriptor_set_layout;
 
-    VkCommandPool m_command_pool;
     VkCommandBuffer m_command_buffer;
 
     VkBuffer m_storage_buffer;
     VkDeviceMemory m_storage_memory;
     void* m_storage_memory_ptr;
-
-    VkDescriptorPool m_descriptor_pool;
-    VkDescriptorSet m_descriptor_set;
 };
 
 int main() {
