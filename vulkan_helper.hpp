@@ -423,19 +423,7 @@ namespace vulkan_helper {
             }
             return descriptor_set;
         }
-        void update_descriptor_set(VkBuffer storage_buffer, VkDescriptorSet descriptor_set) {
-            VkDescriptorBufferInfo buffer_info{};
-            buffer_info.buffer = storage_buffer;
-            buffer_info.offset = 0;
-            buffer_info.range = 128;
-            VkWriteDescriptorSet write{};
-            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write.dstSet = descriptor_set;
-            write.dstArrayElement = 0;
-            write.descriptorCount = 1;
-            write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            write.pBufferInfo = &buffer_info;
-
+        void update_descriptor_set(const VkWriteDescriptorSet& write) {
             vkUpdateDescriptorSets(m_device, 1, &write, 0, NULL);
         }
 
@@ -578,4 +566,126 @@ namespace vulkan_helper {
         VkPipelineLayout m_pipeline_layout;
     };
 
+    template<class D>
+    class shader_module {
+    public:
+        shader_module(D& device, const spirv_file& file) : m_device{ device }, m_shader_module { device.create_shader_module(file) }
+        {}
+        ~shader_module() {
+            m_device.destroy_shader_module(m_shader_module);
+        }
+
+        auto get_shader_module() const{
+            return m_shader_module;
+        }
+    private:
+        D& m_device;
+        VkShaderModule m_shader_module;
+    };
+
+    template<class D>
+    class pipeline : public D {
+    public:
+        pipeline(std::invocable<D&> auto&& generate_shader_module) : m_pipeline{ D::create_pipeline(generate_shader_module(*this).get_shader_module(), D::get_pipeline_layout())}
+        {}
+        ~pipeline() {
+            D::destroy_pipeline(m_pipeline);
+        }
+        auto get_pipeline() const {
+            return m_pipeline;
+        }
+    private:
+        VkPipeline m_pipeline;
+    };
+
+    template<class D>
+    class command_buffer : public D {
+    public:
+        command_buffer() : m_command_buffer{D::allocate_command_buffer(D::get_command_pool())}
+        {}
+        auto get_command_buffer() const{
+            return m_command_buffer;
+        }
+        void begin() {
+            VkCommandBufferBeginInfo info{};
+            info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            auto res = vkBeginCommandBuffer(m_command_buffer, &info);
+            if (res != VK_SUCCESS) {
+                throw std::runtime_error{ "failed to begin command buffer" };
+            }
+        }
+        void end() {
+            auto res = vkEndCommandBuffer(m_command_buffer);
+            if (res != VK_SUCCESS) {
+                throw std::runtime_error{ "failed to end command buffer" };
+            }
+        }
+        void bind_pipeline(VkPipelineBindPoint bind_point, VkPipeline pipeline) {
+            vkCmdBindPipeline(m_command_buffer, bind_point, pipeline);
+        }
+        void bind_descriptor_set(VkPipelineBindPoint bind_point, VkPipelineLayout layout, VkDescriptorSet descriptor_set) {
+            vkCmdBindDescriptorSets(m_command_buffer, bind_point,
+                layout, 0, 1, &descriptor_set, 0, NULL);
+        }
+        void dispatch(uint32_t x, uint32_t y, uint32_t z) {
+            vkCmdDispatch(m_command_buffer, x, y, z);
+        }
+    private:
+        VkCommandBuffer m_command_buffer;
+    };
+
+    template<class D>
+    class add_storage_buffer : public D {
+    public:
+        add_storage_buffer() : m_storage_buffer{ D::create_buffer(D::get_compute_queue_family_index(), 128, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT) }
+        {}
+        ~add_storage_buffer() {
+            D::destroy_buffer(m_storage_buffer);
+        }
+        auto get_storage_buffer() const {
+            return m_storage_buffer;
+        }
+    private:
+        VkBuffer m_storage_buffer;
+    };
+
+    template<class D>
+    class add_storage_memory : public D {
+    public:
+        add_storage_memory() : m_storage_memory{ D::alloc_device_memory(D::get_memory_properties(), D::get_storage_buffer(), VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) }
+        {}
+        ~add_storage_memory() {
+            D::free_device_memory(m_storage_memory);
+        }
+        auto get_storage_memory() const {
+            return m_storage_memory;
+        }
+    private:
+        VkDeviceMemory m_storage_memory;
+    };
+
+    template<class D>
+    class add_storage_memory_ptr : public D {
+    public:
+        add_storage_memory_ptr() : m_storage_memory_ptr{ D::map_device_memory(D::get_storage_memory(), 0, 128)}
+        {}
+        ~add_storage_memory_ptr() {
+            D::unmap_device_memory(D::get_storage_memory());
+        }
+        auto get_storage_memory_ptr() const {
+            return m_storage_memory_ptr;
+        }
+    private:
+        void* m_storage_memory_ptr;
+    };
+
+    class first_physical_device : public vulkan_helper::physical_device {
+    public:
+        first_physical_device() : physical_device{
+            [](vulkan_helper::instance& instance) {
+                return instance.get_first_physical_device();
+            }
+        }
+        {}
+    };
 };
