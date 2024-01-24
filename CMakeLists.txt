@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(Vulkan-Debug)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_C_STANDARD 17)
 
 find_package(Vulkan REQUIRED)
@@ -21,3 +21,5 @@ target_link_libraries(compute_shader_debug_c Vulkan::Vulkan)
 
 add_executable(graphics_pipeline_debug graphics_pipeline_debug.cpp vulkan_helper.hpp spirv_helper.hpp)
 target_link_libraries(graphics_pipeline_debug Vulkan::Vulkan)
+
+add_executable(enum_to_string enum_to_string.cpp)
