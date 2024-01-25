@@ -25,3 +25,5 @@ target_link_libraries(graphics_pipeline_debug Vulkan::Vulkan)
 add_executable(enum_to_string enum_to_string.cpp)
 
 add_executable(to_string to_string.cpp)
+
+add_executable(opengl opengl.cpp)
