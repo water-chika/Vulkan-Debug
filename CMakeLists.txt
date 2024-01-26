@@ -27,3 +27,5 @@ add_executable(enum_to_string enum_to_string.cpp)
 add_executable(to_string to_string.cpp)
 
 add_executable(opengl opengl.cpp)
+target_include_directories(opengl PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
