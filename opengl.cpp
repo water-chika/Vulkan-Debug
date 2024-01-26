@@ -5,6 +5,7 @@
 #include <random>
 #include <algorithm>
 #include <span>
+#include <array>
 
 #include "GL/glcorearb.h"
 
@@ -150,16 +151,46 @@ namespace opengl {
             return name_manager.get(name);
         }
     private:
-        buffer::name next_name;
         name_manager<buffer::name, std::shared_ptr<buffer>> name_manager;
     };
 
     class texture {
-
-    };
-    class texture_manager {
+    public:
+        struct rgba {
+            uint8_t r, g, b, a;
+        };
     private:
-        name_manager<uint32_t, std::shared_ptr<texture>> m_name_manager;
+        std::array<std::array<rgba, 128>, 128> texel;
+    };
+    struct texture_target {
+        int value;
+    };
+    struct texture_name {
+        uint32_t value;
+        constexpr texture_name operator++() {
+            return texture_name{ ++value };
+        }
+        constexpr texture_name operator++(int) {
+            return texture_name{ value++ };
+        }
+        friend constexpr bool operator<(texture_name lhs, texture_name rhs);
+    };
+    constexpr bool operator<(texture_name lhs, texture_name rhs) {
+        return lhs.value < rhs.value;
+    }
+    class texture_manager {
+    public:
+        void gen_textures(int32_t n, texture_name* names) {
+            for (int i = 0; i < n; i++) {
+                names[i] = m_name_manager.alloc_a_name();
+                m_name_manager.set(names[i], nullptr);
+            }
+        }
+    private:
+        name_manager<texture_name, std::shared_ptr<texture>> m_name_manager;
+    };
+    struct texture_unit_selector {
+        int value;
     };
     class context {
     public:
@@ -196,9 +227,18 @@ namespace opengl {
             auto buffer = target_buffer_map[target];
             return buffer->unmap();
         }
+        void active_texture(texture_unit_selector selector) {
+            m_active_texture_unit_selector = selector;
+        }
+        void gen_textures(int32_t n, texture_name* names) {
+            texture_manager.gen_textures(n, names);
+        }
     private:
         buffer_manager buffer_manager;
         target_buffer_map<buffer::target, std::shared_ptr<buffer>> target_buffer_map;
+
+        texture_manager texture_manager;
+        texture_unit_selector m_active_texture_unit_selector;
     };
 
 
@@ -236,6 +276,12 @@ namespace opengl {
     }
     bool unmap_buffer(int target) {
         return g_context.unmap_buffer(buffer::target{ target });
+    }
+    void active_texture(int texture) {
+        return g_context.active_texture(texture_unit_selector{ texture });
+    }
+    void gen_textures(int32_t n, uint32_t* textures) {
+        return g_context.gen_textures(n, reinterpret_cast<texture_name*>(textures));
     }
 }
 
@@ -284,3 +330,12 @@ GLvoid* glMapBuffer(GLenum target, GLenum access) {
 GLboolean glUnmapBuffer(GLenum target) {
     return opengl::unmap_buffer(target);
 }
+
+GLvoid glActiveTexture(GLenum texture) {
+    return opengl::active_texture(texture);
+}
+
+GLvoid glGenTextures(GLsizei n, GLuint* textures) {
+    return opengl::gen_textures(n, textures);
+}
+
