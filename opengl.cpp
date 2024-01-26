@@ -14,6 +14,32 @@ static_assert(sizeof(GLuint) == sizeof(uint32_t));
 namespace opengl {
     template<class N, class T>
     using name_space = std::map<N, T>;
+    template<class N, class T>
+    class name_manager {
+    public:
+        name_manager() : next_name{1}, buffer_name_space{std::pair<N,T>{0,T{}}}
+        N alloc_a_name() {
+            while (name_space.find(next_name) != name_space.end()) {
+                ++next_name;
+            }
+            return next_name++;
+        }
+        void dealloc_name(N name) {
+            name_space.erase(name);
+        }
+        T get(N name) {
+            return name_space[name];
+        }
+        void set(N name, T t) {
+            name_space.emplace(name, t);
+        }
+        bool is_allocated(N name) {
+            return name_space.find(next_name) != name_space.end();
+        }
+    private:
+        N next_name;
+        name_space<N, T> name_space;
+    };
     template<class T, class N>
     using target_buffer_map = std::map<T, N>;
 	class buffer {
@@ -92,39 +118,42 @@ namespace opengl {
 	};
     class buffer_manager {
     public:
-        buffer_manager() : next_name{ 1 }, buffer_name_space{ std::pair{buffer::name{0}, std::shared_ptr<buffer>{} } } {}
+        buffer_manager() : {}
         void generate_buffers(int32_t n, buffer::name* names) {
             for (int i = 0; i < n; i++) {
-                while (buffer_name_space.find(next_name) != buffer_name_space.end()) {
-                    next_name = next_name.get_next_name();
-                }
-                names[i] = next_name;
-                buffer_name_space.emplace(names[i], nullptr);
-                next_name = next_name.get_next_name();
+                names[i] = name_manager.alloc_a_name();
+                name_manager.set(names[i], nullptr);
             }
         }
         void delete_buffers(int32_t n, buffer::name* names) {
             for (int i = 0; i < n; i++) {
-                buffer_name_space.erase(names[i]);
+                name_manager.dealloc_name(names[i]);
             }
         }
         bool is_buffer(buffer::name name) {
-            return buffer_name_space.find(name) != buffer_name_space.end();
+            return name_manager.is_allocated(name);
         }
         std::shared_ptr<buffer> create_buffer(buffer::name name) {
-            buffer_name_space[name] = std::make_shared<buffer>();
-            return buffer_name_space[name];
+            name_manager.set(name, std::make_shared<buffer>());
+            return name_manager.get(name);
         }
         auto get_or_create_buffer(buffer::name name) {
-            if (buffer_name_space[name] == nullptr) {
+            if (name_manager.get(name) == nullptr) {
                 create_buffer(name);
             }
-            return buffer_name_space[name];
+            return name_manager.get(name);
         }
     private:
         buffer::name next_name;
-        name_space<buffer::name, std::shared_ptr<buffer>> buffer_name_space;
+        name_manager<buffer::name, std::shared_ptr<buffer>> name_manager;
+    };
 
+    class texture {
+
+    };
+    class texture_manager {
+    private:
+        name_manager<uint32_t, std::shared_ptr<texture>> m_name_manager;
     };
     class context {
     public:
