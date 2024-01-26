@@ -17,7 +17,7 @@ namespace opengl {
     template<class N, class T>
     class name_manager {
     public:
-        name_manager() : next_name{1}, buffer_name_space{std::pair<N,T>{0,T{}}}
+        name_manager() : next_name{ 1 }, name_space{ std::pair<N,T>{0,T{}} } {}
         N alloc_a_name() {
             while (name_space.find(next_name) != name_space.end()) {
                 ++next_name;
@@ -46,8 +46,11 @@ namespace opengl {
     public:
         struct name {
             uint32_t value;
-            name get_next_name() {
+            name operator++() {
                 return name{ ++value };
+            }
+            name operator++(int) {
+                return name{ value++ };
             }
             constexpr bool operator<(const name& rhs) const {
                 return value < rhs.value;
@@ -55,6 +58,9 @@ namespace opengl {
         };
         struct target {
             int value;
+            constexpr bool operator<(const target& rhs) const {
+                return value < rhs.value;
+            }
         };
         struct{
             GLint64 size;
@@ -68,7 +74,7 @@ namespace opengl {
             GLint64 map_length;
             GLint storage_flags;
         } m_gl;
-        void storage(ptrdiff_t size, const void* data, uint32_t flags) {
+        void storage(size_t size, const void* data, uint32_t flags) {
             m_gl.size = size;
             m_gl.usage = GL_DYNAMIC_DRAW;
             m_gl.access = GL_READ_WRITE;
@@ -83,7 +89,7 @@ namespace opengl {
             data_store.resize(size);
             std::ranges::copy(std::span{reinterpret_cast<const char*>(data), size}, data_store.begin());
         }
-        void data(ptrdiff_t size, const void* data, int usage) {
+        void data(size_t size, const void* data, int usage) {
             m_gl.size = size;
             m_gl.usage = usage;
             m_gl.access = GL_READ_WRITE;
@@ -98,13 +104,13 @@ namespace opengl {
             data_store.resize(size);
             std::ranges::copy(std::span{ reinterpret_cast<const char*>(data), size }, &data_store[0]);
         }
-        void sub_data(intptr_t offset, ptrdiff_t size, const void* data) {
+        void sub_data(intptr_t offset, size_t size, const void* data) {
             std::ranges::copy(std::span{ reinterpret_cast<const char*>(data), size }, &data_store[offset]);
         }
-        void clear_buffer_sub_data(int internalformat, intptr_t offset, ptrdiff_t size, int format, int type, const void* data) {
+        void clear_buffer_sub_data(int internalformat, intptr_t offset, size_t size, int format, int type, const void* data) {
 
         }
-        void* map_range(intptr_t offset, ptrdiff_t length, int access) {
+        void* map_range(intptr_t offset, size_t length, int access) {
             return &data_store[offset];
         }
         void* map(int access) {
@@ -118,7 +124,7 @@ namespace opengl {
 	};
     class buffer_manager {
     public:
-        buffer_manager() : {}
+        buffer_manager() = default;
         void generate_buffers(int32_t n, buffer::name* names) {
             for (int i = 0; i < n; i++) {
                 names[i] = name_manager.alloc_a_name();
@@ -162,23 +168,23 @@ namespace opengl {
             auto buffer = buffer_manager.get_or_create_buffer(name);
             target_buffer_map.emplace(target, buffer);
         }
-        void buffer_storage(buffer::target target, ptrdiff_t size, const void* data, uint32_t flags) {
+        void buffer_storage(buffer::target target, size_t size, const void* data, uint32_t flags) {
             auto buffer = target_buffer_map[target];
             buffer->storage(size, data, flags);
         }
-        void buffer_data(buffer::target target, ptrdiff_t size, const void* data, int usage) {
+        void buffer_data(buffer::target target, size_t size, const void* data, int usage) {
             auto buffer = target_buffer_map[target];
             buffer->data(size, data, usage);
         }
-        void buffer_sub_data(buffer::target target, intptr_t offset, ptrdiff_t size, const void* data) {
+        void buffer_sub_data(buffer::target target, intptr_t offset, size_t size, const void* data) {
             auto buffer = target_buffer_map[target];
             buffer->sub_data(offset, size, data);
         }
-        void clear_buffer_sub_data(buffer::target target, int internalformat, intptr_t offset, ptrdiff_t size, int format, int type, const void* data) {
+        void clear_buffer_sub_data(buffer::target target, int internalformat, intptr_t offset, size_t size, int format, int type, const void* data) {
             auto buffer = target_buffer_map[target];
             buffer->clear_buffer_sub_data(internalformat, offset, size, format, type, data);
         }
-        void* map_buffer_range(buffer::target target, intptr_t offset, ptrdiff_t length, int access) {
+        void* map_buffer_range(buffer::target target, intptr_t offset, size_t length, int access) {
             auto buffer = target_buffer_map[target];
             return buffer->map_range(offset, length, access);
         }
@@ -210,19 +216,19 @@ namespace opengl {
     void bind_buffer(int target, uint32_t buffer) {
         g_context.bind_buffer(buffer::target{ target }, buffer::name{ buffer });
     }
-    void buffer_storage(int target, ptrdiff_t size, const void* data, uint32_t flags) {
+    void buffer_storage(int target, size_t size, const void* data, uint32_t flags) {
         g_context.buffer_storage(buffer::target{ target }, size, data, flags);
     }
-    void buffer_data(int target, ptrdiff_t size, const void* data, int usage) {
+    void buffer_data(int target, size_t size, const void* data, int usage) {
         g_context.buffer_data(buffer::target{ target }, size, data, usage);
     }
-    void buffer_sub_data(int target, intptr_t offset, ptrdiff_t size, const void* data) {
+    void buffer_sub_data(int target, intptr_t offset, size_t size, const void* data) {
         g_context.buffer_sub_data(buffer::target{ target }, offset, size, data);
     }
-    void clear_buffer_sub_data(int target, int internalformat, intptr_t offset, ptrdiff_t size, int format, int type, const void* data) {
+    void clear_buffer_sub_data(int target, int internalformat, intptr_t offset, size_t size, int format, int type, const void* data) {
         g_context.clear_buffer_sub_data(buffer::target{ target }, internalformat, offset, size, format, type, data);
     }
-    void* map_buffer_range(int target, intptr_t offset, ptrdiff_t length, int access) {
+    void* map_buffer_range(int target, intptr_t offset, size_t length, int access) {
         return g_context.map_buffer_range(buffer::target{ target }, offset, length, access);
     }
     void* map_buffer(int target, int access) {
