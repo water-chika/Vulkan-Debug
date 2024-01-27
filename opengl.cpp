@@ -192,6 +192,10 @@ namespace opengl {
     struct texture_unit_selector {
         int value;
     };
+
+    class framebuffer {
+
+    };
     class context {
     public:
         auto& get_buffer_manager() { return buffer_manager; }
@@ -239,15 +243,18 @@ namespace opengl {
 
         texture_manager texture_manager;
         texture_unit_selector m_active_texture_unit_selector;
+
+        std::shared_ptr<framebuffer> m_draw_framebuffer;
+        std::shared_ptr<framebuffer> m_read_framebuffer;
     };
 
 
     context g_context;
 
-    void generate_buffers(int32_t n, uint32_t* buffers) {
+    void generate_buffers(uint32_t n, uint32_t* buffers) {
         g_context.get_buffer_manager().generate_buffers(n, reinterpret_cast<buffer::name*>(buffers));
     }
-    void delete_buffers(int32_t n, uint32_t* buffers) {
+    void delete_buffers(uint32_t n, uint32_t* buffers) {
         g_context.get_buffer_manager().delete_buffers(n, reinterpret_cast<buffer::name*>(buffers));
     }
     GLboolean is_buffer(uint32_t buffer) {
@@ -280,7 +287,7 @@ namespace opengl {
     void active_texture(int texture) {
         return g_context.active_texture(texture_unit_selector{ texture });
     }
-    void gen_textures(int32_t n, uint32_t* textures) {
+    void gen_textures(uint32_t n, uint32_t* textures) {
         return g_context.gen_textures(n, reinterpret_cast<texture_name*>(textures));
     }
 }
