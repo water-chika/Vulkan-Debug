@@ -8,6 +8,7 @@
 #include <array>
 
 #include "GL/glcorearb.h"
+#include "color_2d_buffer.hpp"
 
 static_assert(sizeof(GLsizei) == sizeof(int32_t));
 static_assert(sizeof(GLuint) == sizeof(uint32_t));
@@ -156,11 +157,13 @@ namespace opengl {
 
     class texture {
     public:
-        struct rgba {
-            uint8_t r, g, b, a;
-        };
     private:
-        std::array<std::array<rgba, 128>, 128> texel;
+        color_2d_buffer<format::rgba8> m_buffer;
+    };
+    class renderbuffer {
+    public:
+    private:
+        color_2d_buffer<format::rgba8> m_buffer;
     };
     struct texture_target {
         int value;
