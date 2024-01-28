@@ -3,25 +3,52 @@
 #include <chrono>
 #include <functional>
 
-template<class F, class... Args>
-class cached_caller {
-	using ret_type = decltype(fun(args...));
-	using index_type = std::tuple<Args...>;
+class fun {
+public:
+	virtual int operator()(int n) {
+		if (n <= 0) {
+			return 1;
+		}
+		return operator()(n - 1) + operator()(n - 2);
+	}
+};
 
-	ret_type operator()(Args... args) {
-		ret_type res;
-		index_type index{ args... };
-		if (m_cache.count(index) > 0) {
-			res = m_cache[index];
+class fun_cached : fun {
+public:
+	int operator()(int n) override {
+		int res;
+		if (cache.find(n) != cache.end()) {
+			res = cache[n];
 		}
 		else {
-			res = fun(args...);
-			m_cache.emplace(index, res);
+			res = fun::operator()(n);
+			cache.emplace(n, res);
 		}
 		return res;
 	}
 private:
-	static std::map<index_type, ret_type> m_cache;
+	std::map<int, int> cache;
+};
+
+
+template<class F, class... Args>
+class cached_call : public F {
+public:
+	using index_type = std::tuple<Args...>;
+	auto operator()(Args... args) -> decltype(F::operator()(args)) override {
+		index_type index{ args };
+		ret_type res{};
+		if (cache.find(index) != cache.end()) {
+			res = cache[index];
+		}
+		else {
+			res = F::operator()(index);
+			cache.emplace(index, res);
+		}
+		return res;
+	}
+private:
+	std::map<index_type, ret_type> cache;
 };
 
 
@@ -37,5 +64,7 @@ auto measure_duration(F f, Args... args) {
 }
 
 int main() {
+	std::cout << measure_duration(fun{}, 30) << std::endl;
+	std::cout << measure_duration(cached_call<fun, int>{}, 30) << std::endl;
 	return 0;
 }
