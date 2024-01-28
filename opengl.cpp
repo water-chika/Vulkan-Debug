@@ -18,28 +18,28 @@ namespace opengl {
     template<class N, class T>
     class name_manager {
     public:
-        name_manager() : next_name{ 1 }, name_space{ std::pair<N,T>{0,T{}} } {}
+        name_manager() : m_next_name{ 1 }, m_name_space{ std::pair<N,T>{0,T{}} } {}
         N alloc_a_name() {
-            while (name_space.find(next_name) != name_space.end()) {
-                ++next_name;
+            while (m_name_space.find(m_next_name) != m_name_space.end()) {
+                ++m_next_name;
             }
-            return next_name++;
+            return m_next_name++;
         }
         void dealloc_name(N name) {
-            name_space.erase(name);
+            m_name_space.erase(name);
         }
         T get(N name) {
-            return name_space[name];
+            return m_name_space[name];
         }
         void set(N name, T t) {
-            name_space.emplace(name, t);
+            m_name_space.emplace(name, t);
         }
         bool is_allocated(N name) {
-            return name_space.find(next_name) != name_space.end();
+            return m_name_space.find(m_next_name) != m_name_space.end();
         }
     private:
-        N next_name;
-        name_space<N, T> name_space;
+        N m_next_name;
+        name_space<N, T> m_name_space;
     };
     template<class T, class N>
     using target_buffer_map = std::map<T, N>;
@@ -128,30 +128,30 @@ namespace opengl {
         buffer_manager() = default;
         void generate_buffers(int32_t n, buffer::name* names) {
             for (int i = 0; i < n; i++) {
-                names[i] = name_manager.alloc_a_name();
-                name_manager.set(names[i], nullptr);
+                names[i] = m_name_manager.alloc_a_name();
+                m_name_manager.set(names[i], nullptr);
             }
         }
         void delete_buffers(int32_t n, buffer::name* names) {
             for (int i = 0; i < n; i++) {
-                name_manager.dealloc_name(names[i]);
+                m_name_manager.dealloc_name(names[i]);
             }
         }
         bool is_buffer(buffer::name name) {
-            return name_manager.is_allocated(name);
+            return m_name_manager.is_allocated(name);
         }
         std::shared_ptr<buffer> create_buffer(buffer::name name) {
-            name_manager.set(name, std::make_shared<buffer>());
-            return name_manager.get(name);
+            m_name_manager.set(name, std::make_shared<buffer>());
+            return m_name_manager.get(name);
         }
         auto get_or_create_buffer(buffer::name name) {
-            if (name_manager.get(name) == nullptr) {
+            if (m_name_manager.get(name) == nullptr) {
                 create_buffer(name);
             }
-            return name_manager.get(name);
+            return m_name_manager.get(name);
         }
     private:
-        name_manager<buffer::name, std::shared_ptr<buffer>> name_manager;
+        name_manager<buffer::name, std::shared_ptr<buffer>> m_name_manager;
     };
 
     class texture {
@@ -198,50 +198,50 @@ namespace opengl {
     };
     class context {
     public:
-        auto& get_buffer_manager() { return buffer_manager; }
+        auto& get_buffer_manager() { return m_buffer_manager; }
         void bind_buffer(buffer::target target, buffer::name name) {
-            auto buffer = buffer_manager.get_or_create_buffer(name);
-            target_buffer_map.emplace(target, buffer);
+            auto buffer = m_buffer_manager.get_or_create_buffer(name);
+            m_target_buffer_map.emplace(target, buffer);
         }
         void buffer_storage(buffer::target target, size_t size, const void* data, uint32_t flags) {
-            auto buffer = target_buffer_map[target];
+            auto buffer = m_target_buffer_map[target];
             buffer->storage(size, data, flags);
         }
         void buffer_data(buffer::target target, size_t size, const void* data, int usage) {
-            auto buffer = target_buffer_map[target];
+            auto buffer = m_target_buffer_map[target];
             buffer->data(size, data, usage);
         }
         void buffer_sub_data(buffer::target target, intptr_t offset, size_t size, const void* data) {
-            auto buffer = target_buffer_map[target];
+            auto buffer = m_target_buffer_map[target];
             buffer->sub_data(offset, size, data);
         }
         void clear_buffer_sub_data(buffer::target target, int internalformat, intptr_t offset, size_t size, int format, int type, const void* data) {
-            auto buffer = target_buffer_map[target];
+            auto buffer = m_target_buffer_map[target];
             buffer->clear_buffer_sub_data(internalformat, offset, size, format, type, data);
         }
         void* map_buffer_range(buffer::target target, intptr_t offset, size_t length, int access) {
-            auto buffer = target_buffer_map[target];
+            auto buffer = m_target_buffer_map[target];
             return buffer->map_range(offset, length, access);
         }
         void* map_buffer(buffer::target target, int access) {
-            auto buffer = target_buffer_map[target];
+            auto buffer = m_target_buffer_map[target];
             return buffer->map(access);
         }
         bool unmap_buffer(buffer::target target) {
-            auto buffer = target_buffer_map[target];
+            auto buffer = m_target_buffer_map[target];
             return buffer->unmap();
         }
         void active_texture(texture_unit_selector selector) {
             m_active_texture_unit_selector = selector;
         }
         void gen_textures(int32_t n, texture_name* names) {
-            texture_manager.gen_textures(n, names);
+            m_texture_manager.gen_textures(n, names);
         }
     private:
-        buffer_manager buffer_manager;
-        target_buffer_map<buffer::target, std::shared_ptr<buffer>> target_buffer_map;
+        buffer_manager m_buffer_manager;
+        target_buffer_map<buffer::target, std::shared_ptr<buffer>> m_target_buffer_map;
 
-        texture_manager texture_manager;
+        texture_manager m_texture_manager;
         texture_unit_selector m_active_texture_unit_selector;
 
         std::shared_ptr<framebuffer> m_draw_framebuffer;
