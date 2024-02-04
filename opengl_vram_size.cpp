@@ -7,6 +7,7 @@
 #include <iostream>
 #include <cassert>
 #include <vector>
+#include <array>
 
 int main() {
 	assert(glfwInit() == GLFW_TRUE);
@@ -26,6 +27,17 @@ int main() {
 			std::vector<char> renderer(128);
 			wglGetGPUInfoAMD(id, WGL_GPU_RENDERER_STRING_AMD, GL_UNSIGNED_BYTE, renderer.size(), renderer.data());
 			std::cout << renderer.data() << ": " << vram_size << std::endl;
+		}
+	}
+	{
+		std::array<GLenum, 3> params{ GL_VBO_FREE_MEMORY_ATI, GL_TEXTURE_FREE_MEMORY_ATI, GL_RENDERBUFFER_FREE_MEMORY_ATI };
+		for (auto param : params) {
+			GLint values[4];
+			glGetIntegerv(param, values);
+			for (auto p : values) {
+				std::cout << p << " ";
+			}
+			std::cout << std::endl;
 		}
 	}
 	glfwTerminate();
