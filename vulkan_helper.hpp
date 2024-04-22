@@ -71,7 +71,7 @@ namespace vulkan_helper {
 
     class device_create_info {
     public:
-        constexpr device_create_info() : m_create_info{} {
+        constexpr device_create_info() : m_create_info{}, m_queue_family_index{} {
             m_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         }
         void enable_synchronization2() {
@@ -129,7 +129,7 @@ namespace vulkan_helper {
             throw std::runtime_error{ "failed to find queue family" };
         }
         auto get_physical_device_memory_properties() {
-            VkPhysicalDeviceMemoryProperties properties;
+            VkPhysicalDeviceMemoryProperties properties{};
             vkGetPhysicalDeviceMemoryProperties(m_physical_device, &properties);
             return properties;
         }
@@ -239,10 +239,18 @@ namespace vulkan_helper {
             binding.descriptorCount = 1;
             binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
+            VkDescriptorSetLayoutBinding binding2{};
+            binding2.binding = 1;
+            binding2.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            binding2.descriptorCount = 1;
+            binding2.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+            auto bindings = std::array{ binding, binding2 };
+
             VkDescriptorSetLayoutCreateInfo create_info{};
             create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-            create_info.bindingCount = 1;
-            create_info.pBindings = &binding;
+            create_info.bindingCount = bindings.size();
+            create_info.pBindings = bindings.data();
 
             VkDescriptorSetLayout descriptor_set_layout;
             auto res = vkCreateDescriptorSetLayout(m_device, &create_info, NULL, &descriptor_set_layout);
@@ -375,6 +383,26 @@ namespace vulkan_helper {
             vkBindBufferMemory(m_device, buffer, device_memory, 0);
             return device_memory;
         }
+        VkDeviceMemory alloc_device_memory(VkPhysicalDeviceMemoryProperties memory_properties, VkImage image, VkMemoryPropertyFlags property) {
+            VkMemoryRequirements requirements;
+            vkGetImageMemoryRequirements(m_device, image, &requirements);
+            uint32_t memoryType = findProperties(memory_properties, requirements.memoryTypeBits, property);
+
+            VkDeviceMemory device_memory{};
+            {
+                VkMemoryAllocateInfo info{};
+                info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+                info.allocationSize = requirements.size;
+                info.memoryTypeIndex = memoryType;
+                auto res = vkAllocateMemory(m_device, &info, NULL, &device_memory);
+                if (res != VK_SUCCESS) {
+                    throw std::runtime_error{ "failed to allocate device memory" };
+                }
+            }
+
+            vkBindImageMemory(m_device, image, device_memory, 0);
+            return device_memory;
+        }
         void free_device_memory(VkDeviceMemory device_memory) {
             vkFreeMemory(m_device, device_memory, NULL);
         }
@@ -395,11 +423,17 @@ namespace vulkan_helper {
             pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             pool_size.descriptorCount = 1;
 
+            VkDescriptorPoolSize pool_size2{};
+            pool_size2.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            pool_size2.descriptorCount = 1;
+
+            auto pool_sizes = std::array{ pool_size, pool_size2 };
+
             VkDescriptorPoolCreateInfo info{};
             info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
             info.maxSets = 1;
-            info.poolSizeCount = 1;
-            info.pPoolSizes = &pool_size;
+            info.poolSizeCount = pool_sizes.size();
+            info.pPoolSizes = pool_sizes.data();
 
             VkDescriptorPool descriptor_pool;
             vkCreateDescriptorPool(m_device, &info, NULL, &descriptor_pool);
@@ -440,7 +474,7 @@ namespace vulkan_helper {
             }
         }
 
-        void invalidate_mapped_memory_ranges(VkDeviceMemory memory, uint32_t offset, uint32_t size) {
+        void invalidate_mapped_memory_ranges(VkDeviceMemory memory, VkDeviceSize offset, VkDeviceSize size) {
             VkMappedMemoryRange memory_range{};
             memory_range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
             memory_range.memory = memory;
@@ -450,6 +484,29 @@ namespace vulkan_helper {
             if (res != VK_SUCCESS) {
                 throw std::runtime_error{ "failed to invalidate mapped memory" };
             }
+        }
+
+        VkImage create_image(VkImageCreateInfo* create_info) {
+            VkImage image{};
+            VkResult res = vkCreateImage(m_device, create_info, nullptr, &image);
+            if (res != VK_SUCCESS) {
+                throw std::runtime_error{ "failed to create image" };
+            }
+            return image;
+        }
+        void destroy_image(VkImage image) {
+            vkDestroyImage(m_device, image, nullptr);
+        }
+        VkImageView create_image_view(VkImageViewCreateInfo* create_info) {
+            VkImageView view{};
+            VkResult res = vkCreateImageView(m_device, create_info, nullptr, &view);
+            if (res != VK_SUCCESS) {
+                throw std::runtime_error{ "failed to create image view" };
+            }
+            return view;
+        }
+        void destroy_image_view(VkImageView view) {
+            vkDestroyImageView(m_device, view, nullptr);
         }
 
     private:
@@ -623,12 +680,27 @@ namespace vulkan_helper {
         void bind_pipeline(VkPipelineBindPoint bind_point, VkPipeline pipeline) {
             vkCmdBindPipeline(m_command_buffer, bind_point, pipeline);
         }
-        void bind_descriptor_set(VkPipelineBindPoint bind_point, VkPipelineLayout layout, VkDescriptorSet descriptor_set) {
+        void bind_descriptor_sets(VkPipelineBindPoint bind_point, VkPipelineLayout layout, VkDescriptorSet descriptor_set) {
             vkCmdBindDescriptorSets(m_command_buffer, bind_point,
                 layout, 0, 1, &descriptor_set, 0, NULL);
         }
         void dispatch(uint32_t x, uint32_t y, uint32_t z) {
             vkCmdDispatch(m_command_buffer, x, y, z);
+        }
+        void pipeline_barrier(
+            VkPipelineStageFlags src_stage_mask,
+            VkPipelineStageFlags dst_stage_mask,
+            VkDependencyFlags dependency_flags,
+            uint32_t memory_barrier_count,
+            const VkMemoryBarrier* memory_barriers,
+            uint32_t buffer_memory_barrier_count,
+            const VkBufferMemoryBarrier* buffer_memory_barriers,
+            uint32_t image_memory_barrier_count,
+            const VkImageMemoryBarrier* image_memory_barriers) {
+            vkCmdPipelineBarrier(m_command_buffer, src_stage_mask, dst_stage_mask, dependency_flags, memory_barrier_count, memory_barriers, buffer_memory_barrier_count, buffer_memory_barriers, image_memory_barrier_count, image_memory_barriers);
+        }
+        void clear_color_image(VkImage image, VkImageLayout layout, const VkClearColorValue* clear_color, uint32_t range_count, const VkImageSubresourceRange* ranges) {
+            vkCmdClearColorImage(m_command_buffer, image, layout, clear_color, range_count, ranges);
         }
     private:
         VkCommandBuffer m_command_buffer;
@@ -637,7 +709,7 @@ namespace vulkan_helper {
     template<class D>
     class add_storage_buffer : public D {
     public:
-        add_storage_buffer() : m_storage_buffer{ D::create_buffer(D::get_compute_queue_family_index(), 128, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT) }
+        add_storage_buffer() : m_storage_buffer{ D::create_buffer(D::get_compute_queue_family_index(), 151 * 151 * 8 * 4 * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT) }
         {}
         ~add_storage_buffer() {
             D::destroy_buffer(m_storage_buffer);
@@ -667,7 +739,7 @@ namespace vulkan_helper {
     template<class D>
     class add_storage_memory_ptr : public D {
     public:
-        add_storage_memory_ptr() : m_storage_memory_ptr{ D::map_device_memory(D::get_storage_memory(), 0, 128)}
+        add_storage_memory_ptr() : m_storage_memory_ptr{ D::map_device_memory(D::get_storage_memory(), 0, 151*151*8*4*sizeof(uint32_t))}
         {}
         ~add_storage_memory_ptr() {
             D::unmap_device_memory(D::get_storage_memory());

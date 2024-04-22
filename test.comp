@@ -1,15 +1,14 @@
-#version 460
+#version 450 core
+#extension GL_EXT_samplerless_texture_functions : enable
+layout(set = 0, binding = 1) uniform utexture2DMSArray colorTex;
+layout(set = 0, binding = 0, std430) buffer Block0 { uvec4 b[]; } colorbuf;
 
-
-shared uint data[128];
-
-layout(local_size_x=1) in;
-
-layout(binding=0) buffer OutBuf{
-    uint data[128];
-}Out;
-
-void main() {
-    data[gl_LocalInvocationID.x] = gl_LocalInvocationID.x+1;
-    Out.data[gl_LocalInvocationID.x] = data[gl_LocalInvocationID.x];
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+void main()
+{
+   for (int i = 0; i < 8; ++i) {
+      uint idx = (gl_GlobalInvocationID.y * 151 + gl_GlobalInvocationID.x) * 8 + i;
+      //colorbuf.b[idx] = texelFetch(colorTex, ivec3(gl_GlobalInvocationID.xyz), i);
+      colorbuf.b[idx] = uvec4(1,1,1,1);
+   }
 }

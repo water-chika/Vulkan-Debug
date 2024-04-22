@@ -98,8 +98,82 @@ public:
     }
     {}
 };
+template<class D>
+class add_image : public D {
+public:
+    add_image() : D{} {
+        VkImageCreateInfo create_info{};
+        create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        create_info.arrayLayers = 1;
+        create_info.extent = VkExtent3D{ 151, 151, 1 };
+        create_info.format = VK_FORMAT_R32G32B32A32_UINT;
+        create_info.imageType = VK_IMAGE_TYPE_2D;
+        create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        create_info.mipLevels = 1;
+        create_info.samples = VK_SAMPLE_COUNT_8_BIT;
+        create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+        create_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        m_image = D::create_image(&create_info);
+    }
+    ~add_image() {
+        D::destroy_image(m_image);
+    }
+protected:
+    VkImage m_image;
+};
+
+template<class D>
+class add_image_memory : public D {
+public:
+    add_image_memory() : D{} {
+        m_image_memory = D::alloc_device_memory(D::get_memory_properties(), D::m_image, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    }
+    ~add_image_memory() {
+        D::free_device_memory(m_image_memory);
+    }
+protected:
+    VkDeviceMemory m_image_memory;
+};
+
+template<class D>
+class add_image_view : public D {
+public:
+    add_image_view() : D{} {
+        VkImageViewCreateInfo		imageViewCreateInfo =
+        {
+            VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,	// VkStructureType			sType;
+            NULL,									// const void*				pNext;
+            (VkImageViewCreateFlags)0u,					// VkImageViewCreateFlags	flags;
+            D::m_image,									// VkImage					image;
+            VK_IMAGE_VIEW_TYPE_2D_ARRAY,				// VkImageViewType			viewType;
+            VK_FORMAT_R32G32B32A32_UINT,									// VkFormat					format;
+            {
+                VK_COMPONENT_SWIZZLE_R,					// VkComponentSwizzle	r;
+                VK_COMPONENT_SWIZZLE_G,					// VkComponentSwizzle	g;
+                VK_COMPONENT_SWIZZLE_B,					// VkComponentSwizzle	b;
+                VK_COMPONENT_SWIZZLE_A					// VkComponentSwizzle	a;
+            },											// VkComponentMapping		 components;
+            {
+                VK_IMAGE_ASPECT_COLOR_BIT,				// VkImageAspectFlags	aspectMask;
+                0u,										// deUint32				baseMipLevel;
+                1u,										// deUint32				levelCount;
+                0u,										// deUint32				baseArrayLayer;
+                1					// deUint32				layerCount;
+            }											// VkImageSubresourceRange	subresourceRange;
+        };
+        m_image_view = D::create_image_view(&imageViewCreateInfo);
+    }
+    ~add_image_view() {
+        D::destroy_image_view(m_image_view);
+    }
+protected:
+    VkImageView m_image_view;
+};
 
 using app_parent = 
+    add_image_view<
+    add_image_memory<
+    add_image<
     vulkan_helper::add_storage_memory_ptr<
     vulkan_helper::add_storage_memory<
     vulkan_helper::add_storage_buffer<
@@ -113,7 +187,7 @@ using app_parent =
     vulkan_helper::descriptor_pool<
     vulkan_helper::descriptor_set_layout<
     compute_queue
-    >>>>>>>>>>>>;
+    >>>>>>>>>>>>>>>;
 
 
 class App : public app_parent{
@@ -132,15 +206,79 @@ public:
         write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         write.pBufferInfo = &buffer_info;
         app_parent::update_descriptor_set(write);
+        VkDescriptorImageInfo image_info{};
+        image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        image_info.imageView = app_parent::m_image_view;
+        image_info.sampler = NULL;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        write.pImageInfo = &image_info;
+        write.dstBinding = 1;
+        app_parent::update_descriptor_set(write);
         record_command_buffer();
     }
 
     void record_command_buffer() {
         command_buffer::begin();
+        VkImageMemoryBarrier imageBarrier
+        {
+            VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,		// VkStructureType		sType
+            NULL,									// const void*			pNext
+            0u,											// VkAccessFlags		srcAccessMask
+            0,				// VkAccessFlags		dstAccessMask
+            VK_IMAGE_LAYOUT_UNDEFINED,					// VkImageLayout		oldLayout
+            VK_IMAGE_LAYOUT_GENERAL,					// VkImageLayout		newLayout
+            VK_QUEUE_FAMILY_IGNORED,					// uint32_t				srcQueueFamilyIndex
+            VK_QUEUE_FAMILY_IGNORED,					// uint32_t				dstQueueFamilyIndex
+            app_parent::m_image,								// VkImage				image
+            {
+                VK_IMAGE_ASPECT_COLOR_BIT,				// VkImageAspectFlags	aspectMask
+                0u,										// uint32_t				baseMipLevel
+                VK_REMAINING_MIP_LEVELS,				// uint32_t				mipLevels,
+                0u,										// uint32_t				baseArray
+                VK_REMAINING_ARRAY_LAYERS,				// uint32_t				arraySize
+            }
+        };
+
+        command_buffer::pipeline_barrier(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            (VkDependencyFlags)0,
+            0, (const VkMemoryBarrier*)NULL,
+            0, (const VkBufferMemoryBarrier*)NULL,
+            1, &imageBarrier);
+
+
+        VkClearValue				clearColor{};
+        // Clear color buffer to transparent black
+        {
+            VkImageSubresourceRange range{};
+            range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            range.baseMipLevel = 0u;
+            range.levelCount = 1u;
+            range.baseArrayLayer = 0u;
+            range.layerCount = 1;
+            command_buffer::clear_color_image(app_parent::m_image, VK_IMAGE_LAYOUT_GENERAL, &clearColor.color, 1, &range);
+        }
+
+
+        VkMemoryBarrier memBarrier
+        {
+            VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+            NULL,
+            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT
+        };
+        command_buffer::pipeline_barrier(VkPipelineStageFlagBits::VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &memBarrier, 0, NULL, 0, NULL);
+
+        command_buffer::bind_descriptor_sets(VK_PIPELINE_BIND_POINT_COMPUTE, app_parent::get_pipeline_layout(), app_parent::get_descriptor_set() );
         command_buffer::bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, app_parent::get_pipeline());
-        command_buffer::bind_descriptor_set(VK_PIPELINE_BIND_POINT_COMPUTE, 
-                app_parent::get_pipeline_layout(), app_parent::get_descriptor_set());
-        command_buffer::dispatch(1, 1, 1);
+
+        // Copy color/depth/stencil buffers to buffer memory
+        command_buffer::dispatch(151, 151, 1);
+
+        memBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        memBarrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+        command_buffer::pipeline_barrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_HOST_BIT,
+            0, 1, &memBarrier, 0, NULL, 0, NULL);
+
         command_buffer::end();
     }
 
@@ -182,8 +320,17 @@ public:
         fence::wait_for();
 
         {
+            //app_parent::invalidate_mapped_memory_ranges(app_parent::get_storage_memory(), 0, VK_WHOLE_SIZE);
             uint32_t* data = reinterpret_cast<uint32_t*>(app_parent::get_storage_memory_ptr());
-            std::cout << data[0];
+            for (int y = 0; y < 151; y++) {
+                for (int x = 0; x < 151; x++) {
+                    for (int s = 0; s < 8; s++) {
+                        uint32_t* sample = &data[4*((y * 151 + x) * 8 + s)];
+                        assert(sample[0] == 1);
+                    }
+                }
+            }
+            std::cout << data[(0x80*151 + 0x86)*4*8] << std::endl;
         }
         
     }
