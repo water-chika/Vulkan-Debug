@@ -8,7 +8,6 @@ void main()
 {
    for (int i = 0; i < 8; ++i) {
       uint idx = (gl_GlobalInvocationID.y * 151 + gl_GlobalInvocationID.x) * 8 + i;
-      //colorbuf.b[idx] = texelFetch(colorTex, ivec3(gl_GlobalInvocationID.xyz), i);
-      colorbuf.b[idx] = uvec4(1,1,1,1);
+      colorbuf.b[idx] = texelFetch(colorTex, ivec3(gl_GlobalInvocationID.xyz), i);
    }
 }

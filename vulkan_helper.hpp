@@ -739,7 +739,7 @@ namespace vulkan_helper {
     template<class D>
     class add_storage_memory_ptr : public D {
     public:
-        add_storage_memory_ptr() : m_storage_memory_ptr{ D::map_device_memory(D::get_storage_memory(), 0, 151*151*8*4*sizeof(uint32_t))}
+        add_storage_memory_ptr() : m_storage_memory_ptr{ D::map_device_memory(D::get_storage_memory(), 0, VK_WHOLE_SIZE)}
         {}
         ~add_storage_memory_ptr() {
             D::unmap_device_memory(D::get_storage_memory());

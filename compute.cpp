@@ -197,7 +197,7 @@ public:
         VkDescriptorBufferInfo buffer_info{};
         buffer_info.buffer = app_parent::get_storage_buffer();
         buffer_info.offset = 0;
-        buffer_info.range = 128;
+        buffer_info.range = VK_WHOLE_SIZE;
         VkWriteDescriptorSet write{};
         write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         write.dstSet = app_parent::get_descriptor_set();
@@ -224,7 +224,7 @@ public:
             VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,		// VkStructureType		sType
             NULL,									// const void*			pNext
             0u,											// VkAccessFlags		srcAccessMask
-            0,				// VkAccessFlags		dstAccessMask
+            VK_ACCESS_TRANSFER_WRITE_BIT,				// VkAccessFlags		dstAccessMask
             VK_IMAGE_LAYOUT_UNDEFINED,					// VkImageLayout		oldLayout
             VK_IMAGE_LAYOUT_GENERAL,					// VkImageLayout		newLayout
             VK_QUEUE_FAMILY_IGNORED,					// uint32_t				srcQueueFamilyIndex
@@ -246,7 +246,7 @@ public:
             1, &imageBarrier);
 
 
-        VkClearValue				clearColor{};
+        VkClearValue				clearColor{ .color = {.uint32 = {0, 0, 0, 0}} };
         // Clear color buffer to transparent black
         {
             VkImageSubresourceRange range{};
@@ -263,10 +263,10 @@ public:
         {
             VK_STRUCTURE_TYPE_MEMORY_BARRIER,
             NULL,
-            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+            VK_ACCESS_TRANSFER_WRITE_BIT,
             VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT
         };
-        command_buffer::pipeline_barrier(VkPipelineStageFlagBits::VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &memBarrier, 0, NULL, 0, NULL);
+        command_buffer::pipeline_barrier(VkPipelineStageFlagBits::VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &memBarrier, 0, NULL, 0, NULL);
 
         command_buffer::bind_descriptor_sets(VK_PIPELINE_BIND_POINT_COMPUTE, app_parent::get_pipeline_layout(), app_parent::get_descriptor_set() );
         command_buffer::bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, app_parent::get_pipeline());
@@ -320,13 +320,13 @@ public:
         fence::wait_for();
 
         {
-            //app_parent::invalidate_mapped_memory_ranges(app_parent::get_storage_memory(), 0, VK_WHOLE_SIZE);
+            app_parent::invalidate_mapped_memory_ranges(app_parent::get_storage_memory(), 0, VK_WHOLE_SIZE);
             uint32_t* data = reinterpret_cast<uint32_t*>(app_parent::get_storage_memory_ptr());
             for (int y = 0; y < 151; y++) {
                 for (int x = 0; x < 151; x++) {
                     for (int s = 0; s < 8; s++) {
                         uint32_t* sample = &data[4*((y * 151 + x) * 8 + s)];
-                        assert(sample[0] == 1);
+                        assert(sample[0] == 0);
                     }
                 }
             }
@@ -335,7 +335,7 @@ public:
         
     }
     void run() {
-      for (int i = 0; i < 8; i++)
+      for (int i = 0; i < 1; i++)
           draw();
     }
 };
