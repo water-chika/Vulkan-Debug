@@ -211,12 +211,12 @@ namespace vulkan_helper {
         VkPhysicalDevice m_physical_device;
     };
 
-    template<std::derived_from<physical_device> PD = physical_device>
-    class device : public PD {
+    template<concept_helper::physical_device physical_device>
+    class device : public physical_device {
     public:
-        device(std::invocable<PD&> auto&& gen_info)
+        device(std::invocable<physical_device&> auto&& gen_info)
             :
-            m_device{ PD::create_device(gen_info(*this)) }
+            m_device{ physical_device::create_device(gen_info(*this)) }
         {}
         device() = delete;
         device(const device& device) = delete;
@@ -716,15 +716,5 @@ namespace vulkan_helper {
         }
     private:
         void* m_storage_memory_ptr;
-    };
-
-    class first_physical_device : public vulkan_helper::physical_device {
-    public:
-        first_physical_device() : physical_device{
-            [](vulkan_helper::instance& instance) {
-                return instance.get_first_physical_device();
-            }
-        }
-        {}
     };
 };

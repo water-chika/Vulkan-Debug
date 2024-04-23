@@ -23,7 +23,8 @@ private:
     VkPhysicalDevice m_physical_device;
 };
 
-class compute_queue_physical_device : public first_physical_device {
+template<vulkan_helper::concept_helper::physical_device physical_device>
+class compute_queue_physical_device : public physical_device {
 public:
     compute_queue_physical_device() : m_compute_queue_family_index {
         physical_device::find_queue_family_if(
@@ -40,10 +41,19 @@ private:
     uint32_t m_compute_queue_family_index;
 };
 
-class compute_queue_device : public vulkan_helper::device<compute_queue_physical_device> {
+namespace concept_helper {
+    template<class D>
+    concept get_compute_queue_family_index = requires (D d) {
+        d.get_compute_queue_family_index();
+    };
+}
+
+template<vulkan_helper::concept_helper::physical_device physical_device>
+requires concept_helper::get_compute_queue_family_index<physical_device>
+class compute_queue_device : public physical_device {
 public:
     compute_queue_device() :
-        device{ [](compute_queue_physical_device& physical_device) {
+        physical_device{ [](compute_queue_physical_device& physical_device) {
         vulkan_helper::device_create_info info{};
         info.set_queue_family_index(physical_device.get_compute_queue_family_index());
         return info;
@@ -52,11 +62,13 @@ public:
     {}
 };
 
-class compute_queue : public compute_queue_device {
+template<vulkan_helper::concept_helper::device device>
+requires concept_helper::get_compute_queue_family_index<device>
+class compute_queue : public device {
 public:
     compute_queue() :
         m_queue{
-        device::get_device_queue(compute_queue_device::get_compute_queue_family_index(), 0)
+        device::get_device_queue(device::get_compute_queue_family_index(), 0)
     }
     {}
     VkQueue get_queue() {
@@ -288,8 +300,14 @@ using app_parent =
     vulkan_helper::descriptor_set<
     add_descriptor_pool<
     add_descriptor_set_layout<
-    compute_queue
-    >>>>>>>>>>>>>>>>;
+    compute_queue<
+    compute_queue_device<
+    compute_queue_physical_device<
+    first_physical_device<
+    vulkan_helper::add_instance_function_wrapper<
+    vulkan_helper::instance
+    >>
+    >>>>>>>>>>>>>>>>>>>;
 
 
 class App : public app_parent{
