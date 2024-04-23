@@ -8,14 +8,19 @@
 #include "vulkan_helper.hpp"
 #include "spirv_helper.hpp"
 
-class first_physical_device : public vulkan_helper::physical_device {
+template<vulkan_helper::concept_helper::instance instance>
+requires vulkan_helper::concept_helper::instance_help_functions<instance>
+class first_physical_device : public instance {
 public:
-    first_physical_device() : physical_device{
-        [](vulkan_helper::instance& instance) {
-            return instance.get_first_physical_device();
-        }
+    first_physical_device() : instance{}
+    {
+        m_physical_device = instance::get_first_physical_device();
     }
-    {}
+    auto get_vulkan_physical_device() {
+        return m_physical_device;
+    }
+private:
+    VkPhysicalDevice m_physical_device;
 };
 
 class compute_queue_physical_device : public first_physical_device {
@@ -170,13 +175,110 @@ protected:
     VkImageView m_image_view;
 };
 
+template<class D>
+class add_descriptor_set_layout : public D {
+public:
+    add_descriptor_set_layout() : D{} {
+        VkDescriptorSetLayoutBinding binding{};
+        binding.binding = 0;
+        binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        binding.descriptorCount = 1;
+        binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+        VkDescriptorSetLayoutBinding binding2{};
+        binding2.binding = 1;
+        binding2.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        binding2.descriptorCount = 1;
+        binding2.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+        auto bindings = std::array{ binding, binding2 };
+
+        VkDescriptorSetLayoutCreateInfo create_info{};
+        create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        create_info.bindingCount = bindings.size();
+        create_info.pBindings = bindings.data();
+
+        m_descriptor_set_layout = D::create_descriptor_set_layout(&create_info);
+    }
+    ~add_descriptor_set_layout() {
+        D::destroy_descriptor_set_layout(m_descriptor_set_layout);
+    }
+    VkDescriptorSetLayout get_descriptor_set_layout() {
+        return m_descriptor_set_layout;
+    }
+private:
+    VkDescriptorSetLayout m_descriptor_set_layout;
+};
+template<class D>
+class add_descriptor_pool : public D {
+public:
+    add_descriptor_pool() : D{} {
+        VkDescriptorPoolSize pool_size{};
+        pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        pool_size.descriptorCount = 1;
+
+        VkDescriptorPoolSize pool_size2{};
+        pool_size2.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        pool_size2.descriptorCount = 1;
+
+        auto pool_sizes = std::array{ pool_size, pool_size2 };
+
+        VkDescriptorPoolCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        info.maxSets = 1;
+        info.poolSizeCount = pool_sizes.size();
+        info.pPoolSizes = pool_sizes.data();
+        m_descriptor_pool = D::create_descriptor_pool(&info);
+    }
+    ~add_descriptor_pool() {
+        D::destroy_descriptor_pool(m_descriptor_pool);
+    }
+    auto get_descriptor_pool() {
+        return m_descriptor_pool;
+    }
+    auto allocate_descriptor_set(VkDescriptorSetLayout layout) {
+        return D::allocate_descriptor_set(m_descriptor_pool, layout);
+    }
+private:
+    VkDescriptorPool m_descriptor_pool;
+};
+
+template<class D>
+class update_descriptor_set : public D {
+public:
+    update_descriptor_set() : D{} {
+        VkDescriptorBufferInfo buffer_info{};
+        buffer_info.buffer = D::get_storage_buffer();
+        buffer_info.offset = 0;
+        buffer_info.range = VK_WHOLE_SIZE;
+        VkWriteDescriptorSet write{};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = D::get_descriptor_set();
+        write.dstArrayElement = 0;
+        write.descriptorCount = 1;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        write.pBufferInfo = &buffer_info;
+        D::update_descriptor_set(write);
+        VkDescriptorImageInfo image_info{};
+        image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        image_info.imageView = D::m_image_view;
+        image_info.sampler = NULL;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        write.pImageInfo = &image_info;
+        write.dstBinding = 1;
+        D::update_descriptor_set(write);
+    }
+private:
+};
+
 using app_parent = 
+    update_descriptor_set<
     add_image_view<
     add_image_memory<
     add_image<
     vulkan_helper::add_storage_memory_ptr<
     vulkan_helper::add_storage_memory<
-    vulkan_helper::add_storage_buffer<
+    vulkan_helper::add_storage_buffer< 151 * 151 * 8 * 4 * sizeof(uint32_t),
     vulkan_helper::command_buffer<
     add_compute_command_pool<
     vulkan_helper::fence<
@@ -184,36 +286,16 @@ using app_parent =
     app_pipeline<
     vulkan_helper::pipeline_layout<
     vulkan_helper::descriptor_set<
-    vulkan_helper::descriptor_pool<
-    vulkan_helper::descriptor_set_layout<
+    add_descriptor_pool<
+    add_descriptor_set_layout<
     compute_queue
-    >>>>>>>>>>>>>>>;
+    >>>>>>>>>>>>>>>>;
 
 
 class App : public app_parent{
 public:
     App()
     {
-        VkDescriptorBufferInfo buffer_info{};
-        buffer_info.buffer = app_parent::get_storage_buffer();
-        buffer_info.offset = 0;
-        buffer_info.range = VK_WHOLE_SIZE;
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = app_parent::get_descriptor_set();
-        write.dstArrayElement = 0;
-        write.descriptorCount = 1;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        write.pBufferInfo = &buffer_info;
-        app_parent::update_descriptor_set(write);
-        VkDescriptorImageInfo image_info{};
-        image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        image_info.imageView = app_parent::m_image_view;
-        image_info.sampler = NULL;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-        write.pImageInfo = &image_info;
-        write.dstBinding = 1;
-        app_parent::update_descriptor_set(write);
         record_command_buffer();
     }
 

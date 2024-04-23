@@ -7,6 +7,58 @@
 #include <concepts>
 
 namespace vulkan_helper {
+    namespace concept_helper {
+        template<class Instance>
+        concept instance = requires (Instance instance) {
+            instance.get_vulkan_instance();
+        };
+        template<class Instance>
+        concept instance_help_functions = requires (Instance instance) {
+            instance.get_first_physical_device();
+        };
+        template<class PhysicalDevice>
+        concept physical_device = requires (PhysicalDevice physical_device) {
+            physical_device.get_vulkan_physical_device();
+        };
+        template<class Device>
+        concept device = requires (Device device) {
+            device.get_vulkan_device();
+        };
+    }
+    template<concept_helper::instance instance>
+    class add_instance_function_wrapper : public instance {
+    public:
+        VkPhysicalDevice get_first_physical_device() {
+            uint32_t count = 1;
+            VkPhysicalDevice physical_device;
+            auto res = vkEnumeratePhysicalDevices(instance::get_vulkan_instance(), &count, &physical_device);
+            return physical_device;
+        }
+        template<int NUM>
+        uint32_t enumerate_limit_physical_devices(std::array<VkPhysicalDevice, NUM>& physical_devices) {
+            uint32_t count = physical_devices.size();
+            auto res = vkEnumeratePhysicalDevices(instance::get_vulkan_instance(), &count, physical_devices.data());
+            if (res != VK_INCOMPLETE || res != VK_SUCCESS) {
+                throw std::runtime_error{ "failed to enumerate physical devices" };
+            }
+            return count;
+        }
+        void foreach_physical_device(std::invocable<VkPhysicalDevice> auto&& fun) {
+            constexpr uint32_t COUNT = 8;
+            std::array<VkPhysicalDevice, COUNT> physical_devices{};
+            uint32_t count = COUNT;
+            auto res = vkEnumeratePhysicalDevices(instance::get_vulkan_instance(), &count, physical_devices.data());
+            if (res == VK_INCOMPLETE) {
+                throw std::runtime_error("too more physical device");
+            }
+            else if (res != VK_SUCCESS) {
+                throw std::runtime_error{ "failed to enumerate physical devices" };
+            }
+            for (int i = 0; i < count; i++) {
+                fun(physical_devices[i]);
+            }
+        }
+    };
 	class instance {
     public:
         instance() {
@@ -27,36 +79,11 @@ namespace vulkan_helper {
         ~instance() {
             vkDestroyInstance(m_instance, NULL);
         }
-        VkPhysicalDevice get_first_physical_device() {
-            uint32_t count = 1;
-            VkPhysicalDevice physical_device;
-            auto res = vkEnumeratePhysicalDevices(m_instance, &count, &physical_device);
-            return physical_device;
+        
+        auto get_vulkan_instance() {
+            return m_instance;
         }
-        template<int NUM>
-        uint32_t enumerate_limit_physical_devices(std::array<VkPhysicalDevice, NUM>& physical_devices) {
-            uint32_t count = physical_devices.size();
-            auto res = vkEnumeratePhysicalDevices(m_instance, &count, physical_devices.data());
-            if (res != VK_INCOMPLETE || res != VK_SUCCESS) {
-                throw std::runtime_error{ "failed to enumerate physical devices" };
-            }
-            return count;
-        }
-        void foreach_physical_device(std::invocable<VkPhysicalDevice> auto&& fun) {
-            constexpr uint32_t COUNT = 8;
-            std::array<VkPhysicalDevice, COUNT> physical_devices{};
-            uint32_t count = COUNT;
-            auto res = vkEnumeratePhysicalDevices(m_instance, &count, physical_devices.data());
-            if (res == VK_INCOMPLETE) {
-                throw std::runtime_error("too more physical device");
-            }
-            else if (res != VK_SUCCESS) {
-                throw std::runtime_error{ "failed to enumerate physical devices" };
-            }
-            for (int i = 0; i < count; i++) {
-                fun(physical_devices[i]);
-            }
-        }
+    private:
         VkInstance m_instance;
 	};
 
@@ -110,9 +137,15 @@ namespace vulkan_helper {
         VkDeviceCreateInfo m_create_info;
         int m_queue_family_index;
     };
+    
+    template<concept_helper::instance instance>
     class physical_device : public instance{
     public:
         physical_device(std::invocable<instance&> auto&& select_physical_device) : m_physical_device{ select_physical_device(*this)} {}
+
+        auto get_vulkan_physical_device() {
+            return m_physical_device;
+        }
 
         uint32_t find_queue_family_if(std::predicate<VkQueueFamilyProperties> auto&& fun) {
             constexpr uint32_t COUNT = 8;
@@ -194,6 +227,10 @@ namespace vulkan_helper {
         device& operator=(const device& device) = delete;
         device& operator=(device&& device) = delete;
 
+        VkDevice get_vulkan_device() {
+            return m_device;
+        }
+
         VkQueue get_device_queue(uint32_t queue_family_index, uint32_t queue_index) {
             VkQueue queue;
             vkGetDeviceQueue(m_device, queue_family_index, queue_index, &queue);
@@ -232,28 +269,11 @@ namespace vulkan_helper {
             vkDestroyShaderModule(m_device, shader_module, nullptr);
         }
 
-        auto create_descriptor_set_layout() {
-            VkDescriptorSetLayoutBinding binding{};
-            binding.binding = 0;
-            binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            binding.descriptorCount = 1;
-            binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        auto create_descriptor_set_layout(VkDescriptorSetLayoutCreateInfo* create_info) {
 
-            VkDescriptorSetLayoutBinding binding2{};
-            binding2.binding = 1;
-            binding2.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-            binding2.descriptorCount = 1;
-            binding2.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-            auto bindings = std::array{ binding, binding2 };
-
-            VkDescriptorSetLayoutCreateInfo create_info{};
-            create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-            create_info.bindingCount = bindings.size();
-            create_info.pBindings = bindings.data();
 
             VkDescriptorSetLayout descriptor_set_layout;
-            auto res = vkCreateDescriptorSetLayout(m_device, &create_info, NULL, &descriptor_set_layout);
+            auto res = vkCreateDescriptorSetLayout(m_device, create_info, NULL, &descriptor_set_layout);
             if (res != VK_SUCCESS) {
                 throw std::runtime_error{ "failed to create descriptor set layout" };
             }
@@ -418,25 +438,9 @@ namespace vulkan_helper {
             vkUnmapMemory(m_device, device_memory);
         }
 
-        auto create_descriptor_pool() {
-            VkDescriptorPoolSize pool_size{};
-            pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            pool_size.descriptorCount = 1;
-
-            VkDescriptorPoolSize pool_size2{};
-            pool_size2.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-            pool_size2.descriptorCount = 1;
-
-            auto pool_sizes = std::array{ pool_size, pool_size2 };
-
-            VkDescriptorPoolCreateInfo info{};
-            info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-            info.maxSets = 1;
-            info.poolSizeCount = pool_sizes.size();
-            info.pPoolSizes = pool_sizes.data();
-
+        auto create_descriptor_pool(VkDescriptorPoolCreateInfo* create_info) {
             VkDescriptorPool descriptor_pool;
-            vkCreateDescriptorPool(m_device, &info, NULL, &descriptor_pool);
+            vkCreateDescriptorPool(m_device, create_info, NULL, &descriptor_pool);
             return descriptor_pool;
         }
 
@@ -558,43 +562,6 @@ namespace vulkan_helper {
     };
 
     template<class D>
-    class descriptor_set_layout : public D {
-    public:
-        descriptor_set_layout() : m_descriptor_set_layout{
-            D::create_descriptor_set_layout()
-        }
-        {}
-        ~descriptor_set_layout() {
-            D::destroy_descriptor_set_layout(m_descriptor_set_layout);
-        }
-
-        const auto get_descriptor_set_layout() const {
-            return m_descriptor_set_layout;
-        }
-    private:
-        VkDescriptorSetLayout m_descriptor_set_layout;
-    };
-
-    template<class D>
-    class descriptor_pool : public D {
-    public:
-        descriptor_pool() : m_descriptor_pool{D::create_descriptor_pool()}
-        {}
-        ~descriptor_pool() {
-            D::destroy_descriptor_pool(m_descriptor_pool);
-        }
-        auto allocate_descriptor_set(VkDescriptorSetLayout layout) {
-            return D::allocate_descriptor_set(m_descriptor_pool, layout);
-        }
-
-        auto get_descriptor_pool() {
-            return m_descriptor_pool;
-        }
-    private:
-        VkDescriptorPool m_descriptor_pool;
-    };
-
-    template<class D>
     class descriptor_set : public D {
     public:
     public:
@@ -706,10 +673,10 @@ namespace vulkan_helper {
         VkCommandBuffer m_command_buffer;
     };
 
-    template<class D>
+    template<size_t SIZE, class D>
     class add_storage_buffer : public D {
     public:
-        add_storage_buffer() : m_storage_buffer{ D::create_buffer(D::get_compute_queue_family_index(), 151 * 151 * 8 * 4 * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT) }
+        add_storage_buffer() : m_storage_buffer{ D::create_buffer(D::get_compute_queue_family_index(), SIZE, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT) }
         {}
         ~add_storage_buffer() {
             D::destroy_buffer(m_storage_buffer);
