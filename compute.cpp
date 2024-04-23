@@ -26,7 +26,7 @@ private:
 template<vulkan_helper::concept_helper::physical_device physical_device>
 class compute_queue_physical_device : public physical_device {
 public:
-    compute_queue_physical_device() : m_compute_queue_family_index {
+    compute_queue_physical_device() : m_compute_queue_family_index{
         physical_device::find_queue_family_if(
             [](VkQueueFamilyProperties properties) {
                 return VK_QUEUE_COMPUTE_BIT & properties.queueFlags;
@@ -36,7 +36,7 @@ public:
     {}
             uint32_t get_compute_queue_family_index() {
                 return m_compute_queue_family_index;
-    }
+            }
 private:
     uint32_t m_compute_queue_family_index;
 };
@@ -50,16 +50,29 @@ namespace concept_helper {
 
 template<vulkan_helper::concept_helper::physical_device physical_device>
 requires concept_helper::get_compute_queue_family_index<physical_device>
-class compute_queue_device : public physical_device {
+class device : public physical_device {
 public:
-    compute_queue_device() :
-        physical_device{ [](compute_queue_physical_device& physical_device) {
-        vulkan_helper::device_create_info info{};
-        info.set_queue_family_index(physical_device.get_compute_queue_family_index());
-        return info;
-            }
+    device()
+        :
+        physical_device{}
+        
+    {
+        auto create_info = vulkan_helper::device_create_info{}.set_queue_family_index(physical_device::get_compute_queue_family_index());
+        m_device = physical_device::create_device(create_info);
     }
-    {}
+    device(const device& device) = delete;
+    device(device&& device) = delete;
+    ~device() noexcept {
+        vkDestroyDevice(m_device, nullptr);
+    }
+    device& operator=(const device& device) = delete;
+    device& operator=(device&& device) = delete;
+
+    VkDevice get_vulkan_device() {
+        return m_device;
+    }
+private:
+    VkDevice m_device;
 };
 
 template<vulkan_helper::concept_helper::device device>
@@ -301,12 +314,14 @@ using app_parent =
     add_descriptor_pool<
     add_descriptor_set_layout<
     compute_queue<
-    compute_queue_device<
+    vulkan_helper::add_device_wrapper_functions<
+    device<
     compute_queue_physical_device<
+    vulkan_helper::add_physical_device_wrapper_functions<
     first_physical_device<
     vulkan_helper::add_instance_function_wrapper<
     vulkan_helper::instance
-    >>
+    >>>>
     >>>>>>>>>>>>>>>>>>>;
 
 

@@ -127,8 +127,9 @@ namespace vulkan_helper {
 
             }
         }
-        void set_queue_family_index(uint32_t index) {
+        auto set_queue_family_index(uint32_t index) {
             m_queue_family_index = index;
+            return *this;
         }
         uint32_t get_queue_family_index() const {
             return m_queue_family_index;
@@ -138,20 +139,14 @@ namespace vulkan_helper {
         int m_queue_family_index;
     };
     
-    template<concept_helper::instance instance>
-    class physical_device : public instance{
+    template<concept_helper::physical_device physical_device>
+    class add_physical_device_wrapper_functions : public physical_device{
     public:
-        physical_device(std::invocable<instance&> auto&& select_physical_device) : m_physical_device{ select_physical_device(*this)} {}
-
-        auto get_vulkan_physical_device() {
-            return m_physical_device;
-        }
-
         uint32_t find_queue_family_if(std::predicate<VkQueueFamilyProperties> auto&& fun) {
             constexpr uint32_t COUNT = 8;
             std::array<VkQueueFamilyProperties, COUNT> properties{};
             uint32_t count = COUNT;
-            vkGetPhysicalDeviceQueueFamilyProperties(m_physical_device, &count, properties.data());
+            vkGetPhysicalDeviceQueueFamilyProperties(physical_device::get_vulkan_physical_device(), &count, properties.data());
             assert(count > 0);
             for (uint32_t i = 0; i < count; i++) {
                 auto& property = properties[i];
@@ -163,13 +158,13 @@ namespace vulkan_helper {
         }
         auto get_physical_device_memory_properties() {
             VkPhysicalDeviceMemoryProperties properties{};
-            vkGetPhysicalDeviceMemoryProperties(m_physical_device, &properties);
+            vkGetPhysicalDeviceMemoryProperties(physical_device::get_vulkan_physical_device(), &properties);
             return properties;
         }
         auto get_memory_properties() {
             return get_physical_device_memory_properties();
         }
-        auto create_device(const device_create_info& info) {
+        VkDevice create_device(const device_create_info& info) {
             VkDeviceQueueCreateInfo queue_create_info{};
             queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
             queue_create_info.queueFamilyIndex = info.get_queue_family_index();
@@ -193,47 +188,24 @@ namespace vulkan_helper {
             create_info.pQueueCreateInfos = &queue_create_info;
 
             VkDevice device;
-            auto res = vkCreateDevice(m_physical_device, &create_info, NULL, &device);
+            auto res = vkCreateDevice(physical_device::get_vulkan_physical_device(), &create_info, NULL, &device);
             if (res != VK_SUCCESS) {
                 throw std::runtime_error{ "failed to create device" };
             }
             return device;
         }
-        auto create_device() {
-            device_create_info info{};
-            info.set_queue_family_index(0);
-            return create_device(info);
-        }
+        
         VkPhysicalDevice operator()(VkPhysicalDevice) {
-            return m_physical_device;
+            return physical_device::get_vulkan_physical_device();
         }
-    private:
-        VkPhysicalDevice m_physical_device;
     };
 
-    template<concept_helper::physical_device physical_device>
-    class device : public physical_device {
+    template<concept_helper::device device>
+    class add_device_wrapper_functions : public device {
     public:
-        device(std::invocable<physical_device&> auto&& gen_info)
-            :
-            m_device{ physical_device::create_device(gen_info(*this)) }
-        {}
-        device() = delete;
-        device(const device& device) = delete;
-        device(device&& device) = delete;
-        ~device() noexcept {
-            vkDestroyDevice(m_device, nullptr);
-        }
-        device& operator=(const device& device) = delete;
-        device& operator=(device&& device) = delete;
-
-        VkDevice get_vulkan_device() {
-            return m_device;
-        }
-
         VkQueue get_device_queue(uint32_t queue_family_index, uint32_t queue_index) {
             VkQueue queue;
-            vkGetDeviceQueue(m_device, queue_family_index, queue_index, &queue);
+            vkGetDeviceQueue(device::get_vulkan_device(), queue_family_index, queue_index, &queue);
             return queue;
         }
         VkFence create_fence() {
@@ -242,7 +214,7 @@ namespace vulkan_helper {
             {
                 auto& info = fence_create_info;
                 info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-                auto res = vkCreateFence(m_device, &fence_create_info, NULL, &fence);
+                auto res = vkCreateFence(device::get_vulkan_device(), &fence_create_info, NULL, &fence);
                 if (res != VK_SUCCESS) {
                     throw std::runtime_error{ "failed to create fence" };
                 }
@@ -250,7 +222,7 @@ namespace vulkan_helper {
             return fence;
         }
         void destroy_fence(VkFence fence) {
-            vkDestroyFence(m_device, fence, nullptr);
+            vkDestroyFence(device::get_vulkan_device(), fence, nullptr);
         }
         VkShaderModule create_shader_module(const spirv_file& file) {
             VkShaderModuleCreateInfo create_info{};
@@ -258,7 +230,7 @@ namespace vulkan_helper {
             create_info.codeSize = file.size();
             create_info.pCode = file.data();
             VkShaderModule shader_module;
-            auto res = vkCreateShaderModule(m_device, &create_info, NULL, &shader_module);
+            auto res = vkCreateShaderModule(device::get_vulkan_device(), &create_info, NULL, &shader_module);
             if (res != VK_SUCCESS) {
                 throw std::runtime_error("failed to create shader module");
             }
@@ -266,21 +238,21 @@ namespace vulkan_helper {
         }
 
         void destroy_shader_module(VkShaderModule shader_module) {
-            vkDestroyShaderModule(m_device, shader_module, nullptr);
+            vkDestroyShaderModule(device::get_vulkan_device(), shader_module, nullptr);
         }
 
         auto create_descriptor_set_layout(VkDescriptorSetLayoutCreateInfo* create_info) {
 
 
             VkDescriptorSetLayout descriptor_set_layout;
-            auto res = vkCreateDescriptorSetLayout(m_device, create_info, NULL, &descriptor_set_layout);
+            auto res = vkCreateDescriptorSetLayout(device::get_vulkan_device(), create_info, NULL, &descriptor_set_layout);
             if (res != VK_SUCCESS) {
                 throw std::runtime_error{ "failed to create descriptor set layout" };
             }
             return descriptor_set_layout;
         }
         void destroy_descriptor_set_layout(VkDescriptorSetLayout layout) {
-            vkDestroyDescriptorSetLayout(m_device, layout, NULL);
+            vkDestroyDescriptorSetLayout(device::get_vulkan_device(), layout, NULL);
         }
 
         auto create_pipeline_layout(VkDescriptorSetLayout descriptor_set_layout) {
@@ -290,14 +262,14 @@ namespace vulkan_helper {
             create_info.setLayoutCount = 1;
             create_info.pSetLayouts = &descriptor_set_layout;
             VkPipelineLayout pipeline_layout;
-            auto res = vkCreatePipelineLayout(m_device, &create_info, NULL, &pipeline_layout);
+            auto res = vkCreatePipelineLayout(device::get_vulkan_device(), &create_info, NULL, &pipeline_layout);
             if (res != VK_SUCCESS) {
                 throw std::runtime_error{ "failed to create pipeline layout" };
             }
             return pipeline_layout;
         }
         void destroy_pipeline_layout(VkPipelineLayout pipeline_layout) {
-            vkDestroyPipelineLayout(m_device, pipeline_layout, NULL);
+            vkDestroyPipelineLayout(device::get_vulkan_device(), pipeline_layout, NULL);
         }
         auto create_pipeline(VkShaderModule shader_module, VkPipelineLayout pipeline_layout) {
             VkComputePipelineCreateInfo create_info{};
@@ -310,14 +282,14 @@ namespace vulkan_helper {
             create_info.layout = pipeline_layout;
 
             VkPipeline pipeline;
-            auto res = vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1, &create_info, NULL, &pipeline);
+            auto res = vkCreateComputePipelines(device::get_vulkan_device(), VK_NULL_HANDLE, 1, &create_info, NULL, &pipeline);
             if (res != VK_SUCCESS) {
                 throw std::runtime_error{ "failed to create compute pipeline" };
             }
             return pipeline;
         }
         void destroy_pipeline(VkPipeline pipeline) {
-            vkDestroyPipeline(m_device, pipeline, NULL);
+            vkDestroyPipeline(device::get_vulkan_device(), pipeline, NULL);
         }
 
         auto create_command_pool(uint32_t queue_family_index) {
@@ -325,14 +297,14 @@ namespace vulkan_helper {
             create_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
             create_info.queueFamilyIndex = queue_family_index;
             VkCommandPool command_pool;
-            auto res = vkCreateCommandPool(m_device, &create_info, NULL, &command_pool);
+            auto res = vkCreateCommandPool(device::get_vulkan_device(), &create_info, NULL, &command_pool);
             if (res != VK_SUCCESS) {
                 throw std::runtime_error{ "failed to create command pool" };
             }
             return command_pool;
         }
         void destroy_command_pool(VkCommandPool command_pool) {
-            vkDestroyCommandPool(m_device, command_pool, NULL);
+            vkDestroyCommandPool(device::get_vulkan_device(), command_pool, NULL);
         }
 
         auto allocate_command_buffer(VkCommandPool command_pool) {
@@ -342,7 +314,7 @@ namespace vulkan_helper {
             info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
             info.commandBufferCount = 1;
             VkCommandBuffer command_buffer;
-            auto ret = vkAllocateCommandBuffers(m_device, &info, &command_buffer);
+            auto ret = vkAllocateCommandBuffers(device::get_vulkan_device(), &info, &command_buffer);
             if (ret != VK_SUCCESS) {
                 throw std::runtime_error{ "failed to allocate command buffer" };
             }
@@ -359,14 +331,14 @@ namespace vulkan_helper {
             create_info.pQueueFamilyIndices = &queue_family_index;
 
             VkBuffer buffer;
-            auto res = vkCreateBuffer(m_device, &create_info, NULL, &buffer);
+            auto res = vkCreateBuffer(device::get_vulkan_device(), &create_info, NULL, &buffer);
             if (res != VK_SUCCESS) {
                 throw std::runtime_error{ "failed to create buffer" };
             }
             return buffer;
         }
         void destroy_buffer(VkBuffer buffer) {
-            vkDestroyBuffer(m_device, buffer, NULL);
+            vkDestroyBuffer(device::get_vulkan_device(), buffer, NULL);
         }
 
         uint32_t findProperties(VkPhysicalDeviceMemoryProperties memory_properties, uint32_t memoryTypeBitsRequirements, VkMemoryPropertyFlags requiredProperty) {
@@ -383,9 +355,9 @@ namespace vulkan_helper {
             }
             throw std::runtime_error{ "failed find memory property" };
         }
-        VkDeviceMemory alloc_device_memory(VkPhysicalDeviceMemoryProperties memory_properties,  VkBuffer buffer, VkMemoryPropertyFlags property) {
+        VkDeviceMemory alloc_device_memory(VkPhysicalDeviceMemoryProperties memory_properties, VkBuffer buffer, VkMemoryPropertyFlags property) {
             VkMemoryRequirements requirements;
-            vkGetBufferMemoryRequirements(m_device, buffer, &requirements);
+            vkGetBufferMemoryRequirements(device::get_vulkan_device(), buffer, &requirements);
             uint32_t memoryType = findProperties(memory_properties, requirements.memoryTypeBits, property);
 
             VkDeviceMemory device_memory{};
@@ -394,18 +366,18 @@ namespace vulkan_helper {
                 info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
                 info.allocationSize = requirements.size;
                 info.memoryTypeIndex = memoryType;
-                auto res = vkAllocateMemory(m_device, &info, NULL, &device_memory);
+                auto res = vkAllocateMemory(device::get_vulkan_device(), &info, NULL, &device_memory);
                 if (res != VK_SUCCESS) {
                     throw std::runtime_error{ "failed to allocate device memory" };
                 }
             }
 
-            vkBindBufferMemory(m_device, buffer, device_memory, 0);
+            vkBindBufferMemory(device::get_vulkan_device(), buffer, device_memory, 0);
             return device_memory;
         }
         VkDeviceMemory alloc_device_memory(VkPhysicalDeviceMemoryProperties memory_properties, VkImage image, VkMemoryPropertyFlags property) {
             VkMemoryRequirements requirements;
-            vkGetImageMemoryRequirements(m_device, image, &requirements);
+            vkGetImageMemoryRequirements(device::get_vulkan_device(), image, &requirements);
             uint32_t memoryType = findProperties(memory_properties, requirements.memoryTypeBits, property);
 
             VkDeviceMemory device_memory{};
@@ -414,38 +386,38 @@ namespace vulkan_helper {
                 info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
                 info.allocationSize = requirements.size;
                 info.memoryTypeIndex = memoryType;
-                auto res = vkAllocateMemory(m_device, &info, NULL, &device_memory);
+                auto res = vkAllocateMemory(device::get_vulkan_device(), &info, NULL, &device_memory);
                 if (res != VK_SUCCESS) {
                     throw std::runtime_error{ "failed to allocate device memory" };
                 }
             }
 
-            vkBindImageMemory(m_device, image, device_memory, 0);
+            vkBindImageMemory(device::get_vulkan_device(), image, device_memory, 0);
             return device_memory;
         }
         void free_device_memory(VkDeviceMemory device_memory) {
-            vkFreeMemory(m_device, device_memory, NULL);
+            vkFreeMemory(device::get_vulkan_device(), device_memory, NULL);
         }
         void* map_device_memory(VkDeviceMemory device_memory, VkDeviceSize offset, VkDeviceSize size) {
             void* ptr{};
-            auto res = vkMapMemory(m_device, device_memory, offset, size, 0, &ptr);
+            auto res = vkMapMemory(device::get_vulkan_device(), device_memory, offset, size, 0, &ptr);
             if (res != VK_SUCCESS) {
                 throw std::runtime_error{ "failed to map device memory" };
             }
             return ptr;
         }
         void unmap_device_memory(VkDeviceMemory device_memory) {
-            vkUnmapMemory(m_device, device_memory);
+            vkUnmapMemory(device::get_vulkan_device(), device_memory);
         }
 
         auto create_descriptor_pool(VkDescriptorPoolCreateInfo* create_info) {
             VkDescriptorPool descriptor_pool;
-            vkCreateDescriptorPool(m_device, create_info, NULL, &descriptor_pool);
+            vkCreateDescriptorPool(device::get_vulkan_device(), create_info, NULL, &descriptor_pool);
             return descriptor_pool;
         }
 
         void destroy_descriptor_pool(VkDescriptorPool descriptor_pool) {
-            vkDestroyDescriptorPool(m_device, descriptor_pool, NULL);
+            vkDestroyDescriptorPool(device::get_vulkan_device(), descriptor_pool, NULL);
         }
 
         auto allocate_descriptor_set(VkDescriptorPool descriptor_pool, VkDescriptorSetLayout descriptor_set_layout) {
@@ -455,24 +427,24 @@ namespace vulkan_helper {
             info.descriptorSetCount = 1;
             info.pSetLayouts = &descriptor_set_layout;
             VkDescriptorSet descriptor_set;
-            auto res = vkAllocateDescriptorSets(m_device, &info, &descriptor_set);
+            auto res = vkAllocateDescriptorSets(device::get_vulkan_device(), &info, &descriptor_set);
             if (res != VK_SUCCESS) {
                 throw std::runtime_error{ "failed to allocate descriptor set" };
             }
             return descriptor_set;
         }
         void update_descriptor_set(const VkWriteDescriptorSet& write) {
-            vkUpdateDescriptorSets(m_device, 1, &write, 0, NULL);
+            vkUpdateDescriptorSets(device::get_vulkan_device(), 1, &write, 0, NULL);
         }
 
         void reset_fence(VkFence fence) {
-            if (VK_SUCCESS != vkResetFences(m_device, 1, &fence)) {
+            if (VK_SUCCESS != vkResetFences(device::get_vulkan_device(), 1, &fence)) {
                 throw std::runtime_error{ "failed to reset fence" };
             }
         }
 
         void wait_for_fence(VkFence fence) {
-            auto res = vkWaitForFences(m_device, 1, &fence, VK_TRUE, UINT64_MAX);
+            auto res = vkWaitForFences(device::get_vulkan_device(), 1, &fence, VK_TRUE, UINT64_MAX);
             if (res != VK_SUCCESS) {
                 throw std::runtime_error{ "wait fence fail" };
             }
@@ -484,7 +456,7 @@ namespace vulkan_helper {
             memory_range.memory = memory;
             memory_range.offset = offset;
             memory_range.size = size;
-            auto res = vkInvalidateMappedMemoryRanges(m_device, 1, &memory_range);
+            auto res = vkInvalidateMappedMemoryRanges(device::get_vulkan_device(), 1, &memory_range);
             if (res != VK_SUCCESS) {
                 throw std::runtime_error{ "failed to invalidate mapped memory" };
             }
@@ -492,27 +464,46 @@ namespace vulkan_helper {
 
         VkImage create_image(VkImageCreateInfo* create_info) {
             VkImage image{};
-            VkResult res = vkCreateImage(m_device, create_info, nullptr, &image);
+            VkResult res = vkCreateImage(device::get_vulkan_device(), create_info, nullptr, &image);
             if (res != VK_SUCCESS) {
                 throw std::runtime_error{ "failed to create image" };
             }
             return image;
         }
         void destroy_image(VkImage image) {
-            vkDestroyImage(m_device, image, nullptr);
+            vkDestroyImage(device::get_vulkan_device(), image, nullptr);
         }
         VkImageView create_image_view(VkImageViewCreateInfo* create_info) {
             VkImageView view{};
-            VkResult res = vkCreateImageView(m_device, create_info, nullptr, &view);
+            VkResult res = vkCreateImageView(device::get_vulkan_device(), create_info, nullptr, &view);
             if (res != VK_SUCCESS) {
                 throw std::runtime_error{ "failed to create image view" };
             }
             return view;
         }
         void destroy_image_view(VkImageView view) {
-            vkDestroyImageView(m_device, view, nullptr);
+            vkDestroyImageView(device::get_vulkan_device(), view, nullptr);
         }
+    };
+    template<concept_helper::physical_device physical_device>
+    class device : public physical_device {
+    public:
+        device(const device_create_info& create_info)
+            :
+            m_device{ physical_device::create_device(create_info) }
+        {}
+        device() = delete;
+        device(const device& device) = delete;
+        device(device&& device) = delete;
+        ~device() noexcept {
+            vkDestroyDevice(m_device, nullptr);
+        }
+        device& operator=(const device& device) = delete;
+        device& operator=(device&& device) = delete;
 
+        VkDevice get_vulkan_device() {
+            return m_device;
+        }
     private:
         VkDevice m_device;
     };
