@@ -664,10 +664,10 @@ namespace vulkan_helper {
         VkCommandBuffer m_command_buffer;
     };
 
-    template<size_t SIZE, class D>
+    template<class D>
     class add_storage_buffer : public D {
     public:
-        add_storage_buffer() : m_storage_buffer{ D::create_buffer(D::get_compute_queue_family_index(), SIZE, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT) }
+        add_storage_buffer() : m_storage_buffer{ D::create_buffer(D::get_compute_queue_family_index(), D::get_storage_buffer_size(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)}
         {}
         ~add_storage_buffer() {
             D::destroy_buffer(m_storage_buffer);

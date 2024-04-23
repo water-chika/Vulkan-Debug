@@ -128,6 +128,39 @@ public:
     }
     {}
 };
+
+template<class D>
+class add_image_resolution : public D {
+public:
+    add_image_resolution() : m_width{ 151 }, m_height{ 151 }
+    {}
+    auto get_image_width() {
+        return m_width;
+    }
+    auto get_image_height() {
+        return m_height;
+    }
+private:
+    size_t m_width;
+    size_t m_height;
+};
+
+template<class D>
+class add_storage_buffer_size : public D {
+public:
+    auto get_storage_buffer_size() {
+        return D::get_image_width() * D::get_image_height() * 8 * sizeof(uint32_t);
+    }
+};
+#undef max
+template<class To, class From>
+To checked_cast(From f) {
+    if (f > std::numeric_limits<To>::max()) {
+        throw std::runtime_error{ "cast failed" };
+    }
+    return static_cast<To>(f);
+}
+
 template<class D>
 class add_image : public D {
 public:
@@ -135,7 +168,7 @@ public:
         VkImageCreateInfo create_info{};
         create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         create_info.arrayLayers = 1;
-        create_info.extent = VkExtent3D{ 151, 151, 1 };
+        create_info.extent = VkExtent3D{ checked_cast<uint32_t>(D::get_image_width()), checked_cast<uint32_t>(D::get_image_height()), 1};
         create_info.format = VK_FORMAT_R32G32B32A32_UINT;
         create_info.imageType = VK_IMAGE_TYPE_2D;
         create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -303,7 +336,9 @@ using app_parent =
     add_image<
     vulkan_helper::add_storage_memory_ptr<
     vulkan_helper::add_storage_memory<
-    vulkan_helper::add_storage_buffer< 151 * 151 * 8 * 4 * sizeof(uint32_t),
+    vulkan_helper::add_storage_buffer<
+    add_storage_buffer_size<
+    add_image_resolution<
     vulkan_helper::command_buffer<
     add_compute_command_pool<
     vulkan_helper::fence<
@@ -321,8 +356,8 @@ using app_parent =
     first_physical_device<
     vulkan_helper::add_instance_function_wrapper<
     vulkan_helper::instance
-    >>>>
-    >>>>>>>>>>>>>>>>>>>;
+    >>>>>
+    >>>>>>>>>>>>>>>>>>>>;
 
 
 class App : public app_parent{
@@ -387,7 +422,7 @@ public:
         command_buffer::bind_pipeline(VK_PIPELINE_BIND_POINT_COMPUTE, app_parent::get_pipeline());
 
         // Copy color/depth/stencil buffers to buffer memory
-        command_buffer::dispatch(151, 151, 1);
+        command_buffer::dispatch(app_parent::get_image_width(), app_parent::get_image_height(), 1);
 
         memBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
         memBarrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
@@ -437,15 +472,14 @@ public:
         {
             app_parent::invalidate_mapped_memory_ranges(app_parent::get_storage_memory(), 0, VK_WHOLE_SIZE);
             uint32_t* data = reinterpret_cast<uint32_t*>(app_parent::get_storage_memory_ptr());
-            for (int y = 0; y < 151; y++) {
-                for (int x = 0; x < 151; x++) {
+            for (int y = 0; y < app_parent::get_image_height(); y++) {
+                for (int x = 0; x < app_parent::get_image_width(); x++) {
                     for (int s = 0; s < 8; s++) {
-                        uint32_t* sample = &data[4*((y * 151 + x) * 8 + s)];
+                        uint32_t* sample = &data[4*((y * app_parent::get_image_width() + x) * 8 + s)];
                         assert(sample[0] == 0);
                     }
                 }
             }
-            std::cout << data[(0x80*151 + 0x86)*4*8] << std::endl;
         }
         
     }
