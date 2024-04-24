@@ -478,7 +478,7 @@ public:
                         uint32_t* sample = &data[4*((y * app_parent::get_image_width() + x) * 8 + s)];
                         if (sample[0] != 0) {
                             std::stringstream out{};
-                            out << "clear failed at (" << x << ", " << ")";
+                            out << "clear failed at (" << x << ", " << y << ")";
                             throw std::runtime_error{ out.str()};
                         }
                     }

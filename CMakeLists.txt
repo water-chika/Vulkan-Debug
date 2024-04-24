@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_C_STANDARD 17)
 
 add_subdirectory(vulkan_helper)
+find_package(Vulkan REQUIRED)
 
 add_custom_command(OUTPUT comp.spv
   COMMAND Vulkan::glslangValidator --target-env vulkan1.3
