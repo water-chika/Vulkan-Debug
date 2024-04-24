@@ -476,7 +476,11 @@ public:
                 for (int x = 0; x < app_parent::get_image_width(); x++) {
                     for (int s = 0; s < 8; s++) {
                         uint32_t* sample = &data[4*((y * app_parent::get_image_width() + x) * 8 + s)];
-                        assert(sample[0] == 0);
+                        if (sample[0] != 0) {
+                            std::stringstream out{};
+                            out << "clear failed at (" << x << ", " << ")";
+                            throw std::runtime_error{ out.str()};
+                        }
                     }
                 }
             }
