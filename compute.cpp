@@ -149,7 +149,7 @@ template<class D>
 class add_storage_buffer_size : public D {
 public:
     auto get_storage_buffer_size() {
-        return D::get_image_width() * D::get_image_height() * 8 * sizeof(uint32_t);
+        return D::get_image_width() * D::get_image_height() * 8 * 4 * sizeof(uint32_t);
     }
 };
 #undef max
