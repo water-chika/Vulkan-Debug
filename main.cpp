@@ -230,7 +230,10 @@ public:
                 std::cout << "-----------------------------------------------" << std::endl;
                 uint32_t* data = reinterpret_cast<uint32_t*>(ptr);
                 for (uint32_t t = 0; t < size / sizeof(uint32_t); t++) {
-                    std::cout << std::format("{:x}", data[t]) << ", ";
+                    std::cout << std::format("{:#010x}", data[t]) << ", ";
+                    if (t % 8 == 7) {
+                        std::cout << std::endl;
+                    }
                 }
                 std::cout << std::endl;
             }
