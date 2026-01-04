@@ -28,8 +28,8 @@ public:
         )
     }
     {}
-            uint32_t get_compute_queue_family_index() {
-                return m_compute_queue_family_index;
+    uint32_t get_compute_queue_family_index() {
+        return m_compute_queue_family_index;
     }
 private:
     uint32_t m_compute_queue_family_index;
@@ -99,10 +99,19 @@ public:
     {}
 };
 
-using app_parent = 
-    vulkan_helper::add_storage_memory_ptr<
-    vulkan_helper::add_storage_memory<
-    vulkan_helper::add_storage_buffer<
+template<class D>
+class add_storage_buffer_sizes : public D {
+public:
+    auto get_storage_buffer_sizes() const {
+        return std::vector{ 128*sizeof(uint32_t), 128*sizeof(uint32_t)};
+    }
+};
+
+using app_parent =
+    vulkan_helper::add_storage_memory_ptrs<
+    vulkan_helper::add_storage_memories<
+    vulkan_helper::add_storage_buffers<
+    add_storage_buffer_sizes<
     vulkan_helper::command_buffer<
     add_compute_command_pool<
     vulkan_helper::fence<
@@ -113,25 +122,37 @@ using app_parent =
     vulkan_helper::descriptor_pool<
     vulkan_helper::descriptor_set_layout<
     compute_queue
-    >>>>>>>>>>>>;
+    >>>>>>>>>>>>>;
 
 
 class App : public app_parent{
 public:
     App()
     {
-        VkDescriptorBufferInfo buffer_info{};
-        buffer_info.buffer = app_parent::get_storage_buffer();
-        buffer_info.offset = 0;
-        buffer_info.range = 128;
+        auto storage_buffers = app_parent::get_storage_buffers();
+        auto buffer_infos = std::vector<VkDescriptorBufferInfo>(storage_buffers.size());
+        std::transform(
+            storage_buffers.begin(),
+            storage_buffers.end(),
+            buffer_infos.begin(),
+            [](auto& buffer) {
+                VkDescriptorBufferInfo buffer_info{};
+                buffer_info.buffer = buffer;
+                buffer_info.offset = 0;
+                buffer_info.range = 128*sizeof(uint32_t);
+                return buffer_info;
+            }
+        );
+
         VkWriteDescriptorSet write{};
         write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         write.dstSet = app_parent::get_descriptor_set();
         write.dstArrayElement = 0;
-        write.descriptorCount = 1;
+        write.descriptorCount = buffer_infos.size();
         write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        write.pBufferInfo = &buffer_info;
+        write.pBufferInfo = buffer_infos.data();
         app_parent::update_descriptor_set(write);
+        
         record_command_buffer();
     }
 
@@ -161,6 +182,22 @@ public:
     void draw() {
         fence::reset();
 
+        if (true) {
+            auto sizes = app_parent::get_storage_buffer_sizes();
+            auto ptrs = app_parent::get_storage_memory_ptrs();
+            auto indices = std::vector<uint32_t>(sizes.size());
+            std::iota(indices.begin(), indices.end(), 0);
+            for (auto i : indices) {
+                auto size = sizes[i];
+                auto ptr = ptrs[i];
+
+                uint32_t* data = reinterpret_cast<uint32_t*>(ptr);
+                for (uint32_t t = 0; t < size/sizeof(uint32_t); t++) {
+                    data[t] = t;
+                }
+            }
+        }
+
         VkCommandBufferSubmitInfo command_buffer_submit_info{};
         {
             auto& info = command_buffer_submit_info;
@@ -181,14 +218,27 @@ public:
 
         fence::wait_for();
 
-        {
-            uint32_t* data = reinterpret_cast<uint32_t*>(app_parent::get_storage_memory_ptr());
-            std::cout << data[0];
+        if (true) {
+            auto sizes = app_parent::get_storage_buffer_sizes();
+            auto ptrs = app_parent::get_storage_memory_ptrs();
+            auto indices = std::vector<uint32_t>(sizes.size());
+            std::iota(indices.begin(), indices.end(), 0);
+            for (auto i : indices) {
+                auto size = sizes[i];
+                auto ptr = ptrs[i];
+
+                std::cout << "-----------------------------------------------" << std::endl;
+                uint32_t* data = reinterpret_cast<uint32_t*>(ptr);
+                for (uint32_t t = 0; t < size / sizeof(uint32_t); t++) {
+                    std::cout << std::format("{:x}", data[t]) << ", ";
+                }
+                std::cout << std::endl;
+            }
         }
         
     }
     void run() {
-      for (int i = 0; i < 8; i++)
+      for (int i = 0; i < 1; i++)
           draw();
     }
 };

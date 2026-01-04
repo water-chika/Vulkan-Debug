@@ -1,15 +1,34 @@
 #version 460
 
-
-shared uint data[128];
-
-layout(local_size_x=1) in;
+layout(local_size_x=128*2) in;
 
 layout(binding=0) buffer OutBuf{
     uint data[128];
 }Out;
+layout(binding=1) buffer InBuf{
+    uint data[128];
+}In;
 
 void main() {
-    data[gl_LocalInvocationID.x] = gl_LocalInvocationID.x+1;
-    Out.data[gl_LocalInvocationID.x] = data[gl_LocalInvocationID.x];
+    uint index = gl_GlobalInvocationID.x;
+    const uint src_stride_bits = 0x10;
+    const uint dst_stride_bits = 0x0a;
+    const uint copy_bits = 0x0a;
+    for (uint i = 0; i < copy_bits; i++) {
+        uint n_dst_buffer_bit = index*dst_stride_bits + i;
+        uint n_src_buffer_bit = index*src_stride_bits + i;
+        uint n_dst_buffer_bit_rounded = n_dst_buffer_bit % 32u;
+        uint n_dst_buffer_u32         = n_dst_buffer_bit / 32u /* bits per u32 */;
+        uint n_src_buffer_bit_rounded = n_src_buffer_bit % 32u /* bits per u32 */;
+        uint n_src_buffer_u32         = n_src_buffer_bit / 32u /* bits per u32 */;
+    
+        if ((In.data[n_src_buffer_u32] & (1u << n_src_buffer_bit_rounded) ) != 0)
+        {
+            atomicOr(Out.data[n_dst_buffer_u32], 1u << n_dst_buffer_bit_rounded);
+        }
+        else
+        {
+            atomicAnd(Out.data[n_dst_buffer_u32], ~(1u << n_dst_buffer_bit_rounded) );
+        }
+    }
 }

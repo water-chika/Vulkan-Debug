@@ -5,6 +5,7 @@
 #include "spirv_helper.hpp"
 
 #include <concepts>
+#include <numeric>
 
 namespace vulkan_helper {
 	class instance {
@@ -233,16 +234,27 @@ namespace vulkan_helper {
         }
 
         auto create_descriptor_set_layout() {
-            VkDescriptorSetLayoutBinding binding{};
-            binding.binding = 0;
-            binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            binding.descriptorCount = 1;
-            binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+            auto bindings = std::vector<VkDescriptorSetLayoutBinding>(2);
+            auto indices = std::vector<uint32_t>(bindings.size());
+            std::iota(indices.begin(), indices.end(), 0);
+            std::transform(
+                indices.begin(),
+                indices.end(),
+                bindings.begin(),
+                [](auto i) {
+                    VkDescriptorSetLayoutBinding binding{};
+                    binding.binding = i;
+                    binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                    binding.descriptorCount = 1;
+                    binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+                    return binding;
+                }
+            );
 
             VkDescriptorSetLayoutCreateInfo create_info{};
             create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-            create_info.bindingCount = 1;
-            create_info.pBindings = &binding;
+            create_info.bindingCount = bindings.size();
+            create_info.pBindings = bindings.data();
 
             VkDescriptorSetLayout descriptor_set_layout;
             auto res = vkCreateDescriptorSetLayout(m_device, &create_info, NULL, &descriptor_set_layout);
@@ -393,7 +405,7 @@ namespace vulkan_helper {
         auto create_descriptor_pool() {
             VkDescriptorPoolSize pool_size{};
             pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            pool_size.descriptorCount = 1;
+            pool_size.descriptorCount = 2;
 
             VkDescriptorPoolCreateInfo info{};
             info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -650,6 +662,34 @@ namespace vulkan_helper {
     };
 
     template<class D>
+    class add_storage_buffers : public D {
+    public:
+        add_storage_buffers() : m_storage_buffers{create_buffers(D::get_storage_buffer_sizes())} {}
+        ~add_storage_buffers() {
+            for (auto buffer : m_storage_buffers) {
+                D::destroy_buffer(buffer);
+            }
+        }
+        auto get_storage_buffers() const {
+            return m_storage_buffers;
+        }
+    private:
+        auto create_buffers(const auto& buffer_sizes) {
+            auto buffers = std::vector<VkBuffer>(buffer_sizes.size());
+            std::transform(
+                buffer_sizes.begin(),
+                buffer_sizes.end(),
+                buffers.begin(),
+                [this](auto size) {
+                    return D::create_buffer(D::get_compute_queue_family_index(), size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+                }
+            );
+            return buffers;
+        }
+        std::vector<VkBuffer> m_storage_buffers;
+    };
+
+    template<class D>
     class add_storage_memory : public D {
     public:
         add_storage_memory() : m_storage_memory{ D::alloc_device_memory(D::get_memory_properties(), D::get_storage_buffer(), VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) }
@@ -665,6 +705,38 @@ namespace vulkan_helper {
     };
 
     template<class D>
+    class add_storage_memories : public D {
+    public:
+        add_storage_memories() : m_storage_memories(create_memories(D::get_storage_buffers()))
+        {}
+        ~add_storage_memories() {
+            for (auto memory : m_storage_memories) {
+                D::free_device_memory(memory);
+            }
+        }
+        auto get_storage_memories() const {
+            return m_storage_memories;
+        }
+    private:
+        auto create_memories(const auto& buffers) {
+            auto memories = std::vector<VkDeviceMemory>(buffers.size());
+            std::transform(
+                buffers.begin(),
+                buffers.end(),
+                memories.begin(),
+                [this](const auto& buffer) {
+                    return D::alloc_device_memory(
+                            D::get_memory_properties(),
+                            buffer,
+                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+                }
+            );
+            return memories;
+        }
+        std::vector<VkDeviceMemory> m_storage_memories;
+    };
+
+    template<class D>
     class add_storage_memory_ptr : public D {
     public:
         add_storage_memory_ptr() : m_storage_memory_ptr{ D::map_device_memory(D::get_storage_memory(), 0, 128)}
@@ -677,6 +749,39 @@ namespace vulkan_helper {
         }
     private:
         void* m_storage_memory_ptr;
+    };
+
+    template<class D>
+    class add_storage_memory_ptrs : public D {
+    public:
+        add_storage_memory_ptrs() : m_storage_memory_ptrs{map_memories(D::get_storage_memories(), D::get_storage_buffer_sizes())}
+        {
+        }
+        ~add_storage_memory_ptrs() {
+            for (auto memory : D::get_storage_memories()) {
+                D::unmap_device_memory(memory);
+            }
+        }
+        auto get_storage_memory_ptrs() const {
+            return m_storage_memory_ptrs;
+        }
+    private:
+        auto map_memories(auto memories, auto memory_sizes) {
+            std::vector<void*> ptrs(memories.size());
+            std::vector<uint32_t> indices(memories.size());
+            std::iota(indices.begin(), indices.end(), 0);
+            std::transform(
+                indices.begin(),
+                indices.end(),
+                ptrs.begin(),
+                [&memories, &memory_sizes, this](auto i) {
+                    auto& memory = memories[i];
+                    auto& size = memory_sizes[i];
+                    return D::map_device_memory(memory, 0, size);
+                });
+            return ptrs;
+        }
+        std::vector<void*> m_storage_memory_ptrs;
     };
 
     class first_physical_device : public vulkan_helper::physical_device {
